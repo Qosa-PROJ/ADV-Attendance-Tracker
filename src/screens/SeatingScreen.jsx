@@ -1,4 +1,3 @@
-// src/screens/SeatingScreen.jsx
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -10,7 +9,9 @@ import {
   ActivityIndicator,
   Modal,
   TextInput,
+  Platform,
 } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import {
   collection,
   query,
@@ -37,6 +38,16 @@ export default function SeatingScreen() {
   const [assignModal, setAssignModal] = useState(false);
   const [selectedSeat, setSelectedSeat] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [movingSeat, setMovingSeat] = useState(null);
+
+  // Date picker state
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
+  // Date and attendance states
+  const [currentDate, setCurrentDate] = useState(new Date());
+  const [attendanceData, setAttendanceData] = useState({});
+  const [rows, setRows] = useState(4);
+  const [cols, setCols] = useState(COLS);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -49,6 +60,27 @@ export default function SeatingScreen() {
   useEffect(() => {
     if (selectedClassId) loadClassData(selectedClassId);
   }, [selectedClassId]);
+
+  const loadAttendanceData = async (classId, date) => {
+    try {
+      const dateStr = date.toISOString().split("T")[0];
+      const q = query(
+        collection(db, "attendance"),
+        where("classId", "==", classId),
+        where("date", "==", dateStr),
+      );
+      const snapshot = await getDocs(q);
+      const attendance = {};
+      snapshot.docs.forEach((doc) => {
+        const data = doc.data();
+        attendance[data.studentId] = data.status.toLowerCase();
+      });
+      setAttendanceData(attendance);
+    } catch (e) {
+      console.error("Error loading attendance:", e);
+      setAttendanceData({});
+    }
+  };
 
   const loadClasses = async () => {
     try {
@@ -80,12 +112,20 @@ export default function SeatingScreen() {
       console.log("Loading class doc for seating data:", classId);
       const classDoc = await getDoc(doc(db, "classes", classId));
       if (classDoc.exists()) {
-        setSeatMap(classDoc.data().seatMap || {});
+        const data = classDoc.data();
+        setSeatMap(data.seatMap || {});
+        setRows(data.rows || 4);
+        setCols(data.cols || COLS);
         console.log("Seating data loaded from class doc");
       } else {
         setSeatMap({});
+        setRows(4);
+        setCols(COLS);
         console.log("No class document found for seating data");
       }
+
+      // Load attendance data for current date
+      await loadAttendanceData(classId, currentDate);
     } catch (e) {
       console.error("Error loading class data:", e);
       Alert.alert("Error", "Failed to load class data: " + e.message);
@@ -107,6 +147,8 @@ export default function SeatingScreen() {
         doc(db, "classes", selectedClassId),
         {
           seatMap,
+          rows,
+          cols,
           updatedAt: new Date().toISOString(),
         },
         { merge: true },
@@ -137,6 +179,11 @@ export default function SeatingScreen() {
   };
 
   const handleSeatPress = (row, col) => {
+    if (isAisleCell(row, col)) return;
+    if (movingSeat) {
+      moveSeat(row, col);
+      return;
+    }
     setSelectedSeat({ row, col });
     setSearchQuery("");
     setAssignModal(true);
@@ -153,10 +200,98 @@ export default function SeatingScreen() {
     setAssignModal(false);
   };
 
+  const handleAddLayout = () => {
+    Alert.alert("Add layout", "Add a row or column?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Add Row", onPress: addRow },
+      { text: "Add Column", onPress: addColumn },
+    ]);
+  };
+
+  const handleRemoveLayout = () => {
+    Alert.alert("Remove layout", "Remove a row or column?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Remove Row", onPress: removeRow },
+      { text: "Remove Column", onPress: removeColumn },
+    ]);
+  };
+
+  const removeRow = () => {
+    if (rows <= 1) {
+      Alert.alert("Cannot remove", "At least one row must remain.");
+      return;
+    }
+    const newMap = { ...seatMap };
+    const removedRow = rows - 1;
+    for (let c = 0; c < cols; c += 1) {
+      delete newMap[`${removedRow}-${c}`];
+    }
+    setRows(rows - 1);
+    setSeatMap(newMap);
+  };
+
+  const removeColumn = () => {
+    if (cols <= 1) {
+      Alert.alert("Cannot remove", "At least one column must remain.");
+      return;
+    }
+    const newMap = { ...seatMap };
+    const removedCol = cols - 1;
+    for (let r = 0; r < rows; r += 1) {
+      delete newMap[`${r}-${removedCol}`];
+    }
+    setCols(cols - 1);
+    setSeatMap(newMap);
+  };
+
+  const startMoveMode = (row, col) => {
+    const studentId = seatMap[`${row}-${col}`];
+    if (!studentId) return;
+    setMovingSeat({ row, col, studentId });
+  };
+
+  const moveSeat = (row, col) => {
+    if (!movingSeat) return;
+    const sourceKey = `${movingSeat.row}-${movingSeat.col}`;
+    const targetKey = `${row}-${col}`;
+    if (sourceKey === targetKey) {
+      setMovingSeat(null);
+      return;
+    }
+    const newMap = { ...seatMap };
+    const targetStudent = newMap[targetKey];
+    delete newMap[sourceKey];
+    if (targetStudent) newMap[sourceKey] = targetStudent;
+    newMap[targetKey] = movingSeat.studentId;
+    setSeatMap(newMap);
+    const movedName = getStudentName(movingSeat.studentId);
+    setMovingSeat(null);
+    Alert.alert("Seat moved", `${movedName} has been moved.`);
+  };
+
   const removeSeat = (row, col) => {
     const newMap = { ...seatMap };
     delete newMap[`${row}-${col}`];
     setSeatMap(newMap);
+  };
+
+  const addRow = () => {
+    setRows(rows + 1);
+  };
+
+  const addColumn = () => {
+    setCols(cols + 1);
+  };
+
+  const isAisleCell = (row, col) => col === Math.floor(cols / 2);
+
+  const changeDate = (days) => {
+    const newDate = new Date(currentDate);
+    newDate.setDate(newDate.getDate() + days);
+    setCurrentDate(newDate);
+    if (selectedClassId) {
+      loadAttendanceData(selectedClassId, newDate);
+    }
   };
 
   const getStudentName = (id) =>
@@ -171,9 +306,6 @@ export default function SeatingScreen() {
           .slice(0, 2)
       : "";
 
-  const rows = selectedClassId
-    ? Math.max(4, Math.ceil(students.length / COLS) + 1)
-    : 4;
   const seatedIds = new Set(Object.values(seatMap));
   const unseatedStudents = students.filter((s) => !seatedIds.has(s.id));
   const filteredStudents = students.filter(
@@ -186,18 +318,25 @@ export default function SeatingScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Seating Arrangement</Text>
-        {selectedClass && (
-          <Text style={styles.headerSub}>
-            {selectedClass.subject_name} – {selectedClass.section}
-          </Text>
-        )}
-      </View>
+        <View style={styles.headerTop}>
+          <View style={styles.headerTextBlock}>
+            <Text style={styles.headerTitle}>Seating Arrangement</Text>
+            <Text style={styles.headerSub}>Classroom seating layout</Text>
+          </View>
+          <TouchableOpacity style={styles.datePicker} onPress={() => setShowDatePicker(true)}>
+            <Text style={styles.datePickerText}>
+              {currentDate.toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })}
+            </Text>
+            <Text style={styles.datePickerIcon}>📅</Text>
+          </TouchableOpacity>
+        </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.sectionTitle}>Select Class</Text>
         <TouchableOpacity
-          style={styles.pickerContainer}
+          style={[styles.pickerContainer, styles.pickerContainerHeader]}
           onPress={() => setShowPicker(!showPicker)}
         >
           <Text style={styles.pickerText}>
@@ -225,7 +364,9 @@ export default function SeatingScreen() {
             ))}
           </View>
         )}
+      </View>
 
+      <ScrollView contentContainerStyle={styles.content}>
         {loading && (
           <ActivityIndicator color="#CC0000" style={{ marginVertical: 20 }} />
         )}
@@ -236,6 +377,12 @@ export default function SeatingScreen() {
               <TouchableOpacity style={styles.actionBtn} onPress={autoArrange}>
                 <Text style={styles.actionBtnText}>Auto Arrange</Text>
               </TouchableOpacity>
+              <TouchableOpacity style={styles.actionBtn} onPress={handleAddLayout}>
+                <Text style={styles.actionBtnText}>+ Add</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.actionBtn} onPress={handleRemoveLayout}>
+                <Text style={styles.actionBtnText}>- Remove</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionBtn, styles.actionBtnOutline]}
                 onPress={() =>
@@ -245,11 +392,21 @@ export default function SeatingScreen() {
                   ])
                 }
               >
-                <Text style={[styles.actionBtnText, { color: "#CC0000" }]}>
+                <Text style={[styles.actionBtnText, { color: "#CC0000" }]}> 
                   Clear All
                 </Text>
               </TouchableOpacity>
             </View>
+            {movingSeat && (
+              <View style={styles.moveBanner}>
+                <Text style={styles.moveBannerText}>
+                  Moving {getStudentName(movingSeat.studentId)} — tap destination seat
+                </Text>
+                <TouchableOpacity onPress={() => setMovingSeat(null)}>
+                  <Text style={styles.moveCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             <View style={styles.legend}>
               <View style={styles.legendItem}>
@@ -264,6 +421,24 @@ export default function SeatingScreen() {
                 />
                 <Text style={styles.legendText}>Empty (tap to assign)</Text>
               </View>
+              <View style={styles.legendItem}>
+                <View
+                  style={[styles.legendDot, { backgroundColor: "#22C55E" }]}
+                />
+                <Text style={styles.legendText}>Present</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View
+                  style={[styles.legendDot, { backgroundColor: "#EF4444" }]}
+                />
+                <Text style={styles.legendText}>Absent</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View
+                  style={[styles.legendDot, { backgroundColor: "#F97316" }]}
+                />
+                <Text style={styles.legendText}>Late</Text>
+              </View>
             </View>
 
             <View style={styles.teacherDesk}>
@@ -273,23 +448,48 @@ export default function SeatingScreen() {
             <View style={styles.grid}>
               {Array.from({ length: rows }).map((_, row) => (
                 <View key={row} style={styles.gridRow}>
-                  {Array.from({ length: COLS }).map((_, col) => {
-                    const name = getStudentName(seatMap[`${row}-${col}`]);
+                  {Array.from({ length: cols }).map((_, col) => {
+                    const aisle = isAisleCell(row, col);
+                    if (aisle) {
+                      return (
+                        <View key={col} style={[styles.seat, styles.aisleCell]} />
+                      );
+                    }
+                    const studentId = seatMap[`${row}-${col}`];
+                    const name = getStudentName(studentId);
+                    const attendanceStatus = studentId ? attendanceData[studentId] : null;
+                    const isSelectedMoveSource =
+                      movingSeat && movingSeat.row === row && movingSeat.col === col;
+                    let seatStyle = [styles.seat, name ? styles.seatOccupied : styles.seatEmpty];
+                    if (name && attendanceStatus) {
+                      if (attendanceStatus === "present") {
+                        seatStyle = [styles.seat, { backgroundColor: "#22C55E" }];
+                      } else if (attendanceStatus === "absent") {
+                        seatStyle = [styles.seat, { backgroundColor: "#EF4444" }];
+                      } else if (attendanceStatus === "late") {
+                        seatStyle = [styles.seat, { backgroundColor: "#F97316" }];
+                      }
+                    }
+                    if (isSelectedMoveSource) {
+                      seatStyle.push(styles.seatSelected);
+                    }
                     return (
                       <TouchableOpacity
                         key={col}
-                        style={[
-                          styles.seat,
-                          name ? styles.seatOccupied : styles.seatEmpty,
-                        ]}
+                        style={seatStyle}
                         onPress={() => handleSeatPress(row, col)}
                         onLongPress={() => {
                           if (name)
-                            Alert.alert("Remove", `Remove ${name}?`, [
-                              { text: "Cancel" },
+                            Alert.alert(name, "Choose an action", [
+                              { text: "Cancel", style: "cancel" },
+                              {
+                                text: "Move",
+                                onPress: () => startMoveMode(row, col),
+                              },
                               {
                                 text: "Remove",
                                 onPress: () => removeSeat(row, col),
+                                style: "destructive",
                               },
                             ]);
                         }}
@@ -304,10 +504,11 @@ export default function SeatingScreen() {
                             </Text>
                           </>
                         ) : (
-                          <Text style={styles.seatPlus}>+</Text>
+                          <Text style={styles.seatEmptyText}>EMPTY</Text>
                         )}
                       </TouchableOpacity>
                     );
+
                   })}
                 </View>
               ))}
@@ -414,6 +615,23 @@ export default function SeatingScreen() {
           </View>
         </View>
       </Modal>
+
+      {showDatePicker && (
+        <DateTimePicker
+          value={currentDate}
+          mode="date"
+          display={Platform.OS === "android" ? "calendar" : "default"}
+          onChange={(event, selectedDate) => {
+            setShowDatePicker(false);
+            if (selectedDate) {
+              setCurrentDate(selectedDate);
+              if (selectedClassId) {
+                loadAttendanceData(selectedClassId, selectedDate);
+              }
+            }
+          }}
+        />
+      )}
     </View>
   );
 }
@@ -439,6 +657,35 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 8,
   },
+  pickerContainerHeader: {
+    backgroundColor: "#FFFFFF",
+    marginTop: 12,
+  },
+  headerTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  headerTextBlock: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  datePicker: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.16)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  datePickerText: {
+    color: "#FFCCCC",
+    fontSize: 13,
+  },
+  datePickerIcon: {
+    marginLeft: 6,
+    fontSize: 16,
+  },
   pickerText: { fontSize: 15, color: "#333" },
   pickerArrow: { fontSize: 16, color: "#666" },
   pickerDropdown: {
@@ -454,9 +701,9 @@ const styles = StyleSheet.create({
     borderBottomColor: "#EEE",
   },
   pickerOptionText: { fontSize: 15, color: "#333" },
-  actionRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  actionRow: { flexDirection: "row", gap: 8, marginBottom: 12, flexWrap: "wrap" },
   actionBtn: {
-    flex: 1,
+    minWidth: 100,
     backgroundColor: "#1A3A8F",
     padding: 12,
     borderRadius: 8,
@@ -513,7 +760,31 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 2,
   },
+  seatEmptyText: {
+    color: "#9CA3AF",
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    textAlign: "center",
+  },
   seatPlus: { color: "#9CA3AF", fontSize: 22, fontWeight: "300" },
+  addButton: {
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    borderStyle: "dashed",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  addButtonText: { color: "#1F2937", fontSize: 18, fontWeight: "bold" },
+  addButtonLabel: { color: "#475569", fontSize: 10, marginTop: 4 },
+  aisleCell: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 0,
+    marginHorizontal: 3,
+    width: 58,
+    height: 64,
+  },
   unseatedList: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -592,4 +863,52 @@ const styles = StyleSheet.create({
   studentOptionInitials: { color: "#FFF", fontWeight: "bold" },
   studentOptionName: { fontSize: 15, fontWeight: "600" },
   studentOptionId: { fontSize: 12, color: "#777", marginTop: 2 },
+  dateContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F5F5F5",
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 8,
+  },
+  dateButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#CC0000",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  dateButtonText: { color: "#FFF", fontSize: 18, fontWeight: "bold" },
+  dateText: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginHorizontal: 12,
+  },
+  addButton: {
+    backgroundColor: "#E5E7EB",
+    borderWidth: 1,
+    borderColor: "#D1D5DB",
+    borderStyle: "dashed",
+  },
+  addButtonText: { color: "#6B7280", fontSize: 20, fontWeight: "bold" },
+  seatSelected: {
+    borderWidth: 2,
+    borderColor: "#2563EB",
+  },
+  moveBanner: {
+    backgroundColor: "#E0F2FE",
+    padding: 10,
+    borderRadius: 8,
+    marginBottom: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  moveBannerText: { color: "#1D4ED8", fontSize: 13, fontWeight: "600" },
+  moveCancelText: { color: "#1D4ED8", fontSize: 13, fontWeight: "700" },
 });

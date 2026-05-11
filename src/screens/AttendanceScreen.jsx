@@ -9,7 +9,9 @@ import {
   TextInput,
   Alert,
   Modal,
+  Platform,
 } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 
 import { db, auth } from "../FireBase/FireBaseConfig";
 import { onAuthStateChanged } from "firebase/auth";
@@ -46,7 +48,10 @@ export default function AttendanceScreen({ route }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [attendanceMap, setAttendanceMap] = useState({});
   const [showClassPicker, setShowClassPicker] = useState(false);
-  const [attendanceDate] = useState(new Date().toISOString().split("T")[0]);
+  const [attendanceDate, setAttendanceDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
+  const [showAttendanceDatePicker, setShowAttendanceDatePicker] = useState(false);
   const [classSummary, setClassSummary] = useState({
     present: 0,
     absent: 0,
@@ -78,6 +83,10 @@ export default function AttendanceScreen({ route }) {
   useEffect(() => {
     if (selectedClassId) loadStudents(selectedClassId, false);
   }, [selectedClassId]);
+
+  useEffect(() => {
+    if (selectedClassId) loadClassSummary(selectedClassId);
+  }, [selectedClassId, attendanceDate]);
 
   const loadClassSummary = async (classId) => {
     if (!classId) return;
@@ -404,14 +413,14 @@ export default function AttendanceScreen({ route }) {
         return;
       }
       const student = snap.docs[0];
-      const today = new Date().toISOString().split("T")[0];
+      const dateString = attendanceDate;
 
       const existing = await getDocs(
         query(
           collection(db, "attendance"),
           where("studentId", "==", student.id),
           where("classId", "==", quickClassId),
-          where("date", "==", today),
+          where("date", "==", dateString),
         ),
       );
       for (const d of existing.docs)
@@ -422,7 +431,7 @@ export default function AttendanceScreen({ route }) {
         classId: quickClassId,
         teacherId: user.uid,
         status: quickStatus,
-        date: today,
+        date: dateString,
         createdAt: serverTimestamp(),
       });
       Alert.alert(
@@ -572,6 +581,29 @@ export default function AttendanceScreen({ route }) {
         {/* TAB 1: MARK ATTENDANCE */}
         {activeTab === 1 && (
           <View>
+            <Text style={styles.sectionTitle}>Select Date</Text>
+            <TouchableOpacity
+              style={styles.datePickerButton}
+              onPress={() => setShowAttendanceDatePicker(true)}
+            >
+              <Text style={styles.datePickerText}>{attendanceDate}</Text>
+            </TouchableOpacity>
+            {showAttendanceDatePicker && (
+              <DateTimePicker
+                value={new Date(attendanceDate)}
+                mode="date"
+                display={Platform.OS === "android" ? "calendar" : "default"}
+                onChange={(event, selectedDate) => {
+                  setShowAttendanceDatePicker(false);
+                  if (selectedDate) {
+                    setAttendanceDate(
+                      selectedDate.toISOString().split("T")[0],
+                    );
+                  }
+                }}
+              />
+            )}
+
             <Text style={styles.sectionTitle}>Select Class</Text>
             <TouchableOpacity
               style={styles.pickerContainer}
@@ -720,6 +752,28 @@ export default function AttendanceScreen({ route }) {
             )}
             {quickClassId && (
               <>
+                <Text style={styles.sectionTitle}>Select Date</Text>
+                <TouchableOpacity
+                  style={styles.datePickerButton}
+                  onPress={() => setShowAttendanceDatePicker(true)}
+                >
+                  <Text style={styles.datePickerText}>{attendanceDate}</Text>
+                </TouchableOpacity>
+                {showAttendanceDatePicker && (
+                  <DateTimePicker
+                    value={new Date(attendanceDate)}
+                    mode="date"
+                    display={Platform.OS === "android" ? "calendar" : "default"}
+                    onChange={(event, selectedDate) => {
+                      setShowAttendanceDatePicker(false);
+                      if (selectedDate) {
+                        setAttendanceDate(
+                          selectedDate.toISOString().split("T")[0],
+                        );
+                      }
+                    }}
+                  />
+                )}
                 <TextInput
                   style={styles.input}
                   placeholder="Enter Student ID Number"
@@ -1030,6 +1084,14 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   saveButtonText: { color: "#FFF", fontWeight: "bold", fontSize: 16 },
+  datePickerButton: {
+    backgroundColor: "#F5F5F5",
+    padding: 14,
+    borderRadius: 8,
+    marginBottom: 12,
+    alignItems: "center",
+  },
+  datePickerText: { color: "#333", fontSize: 15 },
   modalContainer: { flex: 1, backgroundColor: "#FFF" },
   modalHeader: {
     flexDirection: "row",

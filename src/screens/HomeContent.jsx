@@ -8,7 +8,9 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Modal,
+  Platform,
 } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import {
   collection,
   query,
@@ -38,8 +40,12 @@ export default function HomeContent({ navigation }) {
   const [studentAttendanceSummary, setStudentAttendanceSummary] = useState({});
   const [loadingOverview, setLoadingOverview] = useState(false);
 
-  const todayStr = new Date().toISOString().split("T")[0];
-  const todayFormatted = new Date().toLocaleDateString("en-US", {
+  // Date picker state
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+
+  const dateStr = selectedDate.toISOString().split("T")[0];
+  const dateFormatted = selectedDate.toLocaleDateString("en-US", {
     weekday: "long",
     year: "numeric",
     month: "long",
@@ -82,7 +88,7 @@ export default function HomeContent({ navigation }) {
     useCallback(() => {
       if (auth.currentUser) {
         setLoading(true);
-        loadTodaySummary();
+        loadSummary();
       }
     }, []),
   );
@@ -168,7 +174,7 @@ export default function HomeContent({ navigation }) {
     setClassSummary({ present: 0, absent: 0, late: 0, rate: 0 });
   };
 
-  const loadTodaySummary = async () => {
+  const loadSummary = async (date = selectedDate) => {
     if (!auth.currentUser) return;
 
     try {
@@ -187,6 +193,7 @@ export default function HomeContent({ navigation }) {
         return;
       }
 
+      const dateString = date.toISOString().split("T")[0];
       let allRecords = [];
       const chunkSize = 30;
       for (let i = 0; i < classIds.length; i += chunkSize) {
@@ -195,7 +202,7 @@ export default function HomeContent({ navigation }) {
           query(
             collection(db, "attendance"),
             where("classId", "in", chunk),
-            where("date", "==", todayStr),
+            where("date", "==", dateString),
           ),
         );
         allRecords = [...allRecords, ...snap.docs.map((d) => d.data())];
@@ -227,7 +234,9 @@ export default function HomeContent({ navigation }) {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.welcome}>Good day, {userName}!</Text>
-        <Text style={styles.date}>{todayFormatted}</Text>
+        <TouchableOpacity onPress={() => setShowDatePicker(true)}>
+          <Text style={styles.date}>{dateFormatted} 📅</Text>
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -407,6 +416,22 @@ export default function HomeContent({ navigation }) {
           </View>
         </Modal>
       </ScrollView>
+
+      {/* Date Picker Modal */}
+      {showDatePicker && (
+        <DateTimePicker
+          value={selectedDate}
+          mode="date"
+          display={Platform.OS === "android" ? "calendar" : "default"}
+          onChange={(event, selectedDate) => {
+            setShowDatePicker(false);
+            if (selectedDate) {
+              setSelectedDate(selectedDate);
+              loadSummary(selectedDate);
+            }
+          }}
+        />
+      )}
     </View>
   );
 }
@@ -504,4 +529,18 @@ const styles = StyleSheet.create({
   },
   studentTotal: { fontSize: 13, fontWeight: "bold", marginRight: 16 },
   attendanceHistory: { marginTop: 8, fontSize: 12, color: "#555" },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  modalBox: {
+    backgroundColor: "#FFF",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    maxHeight: "70%",
+  },
+  modalTitle: { fontSize: 16, fontWeight: "bold", color: "#333" },
+  modalClose: { fontSize: 20, color: "#666", padding: 4 },
 });
