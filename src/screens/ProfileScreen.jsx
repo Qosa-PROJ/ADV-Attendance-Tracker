@@ -21,6 +21,7 @@ import {
   updateEmail,
   EmailAuthProvider,
   reauthenticateWithCredential,
+  onAuthStateChanged,
 } from "firebase/auth";
 import {
   collection,
@@ -40,57 +41,131 @@ export default function ProfileScreen() {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [savingPhoto, setSavingPhoto] = useState(false);
   const [fetching, setFetching] = useState(true);
 
   useEffect(() => {
-    loadProfile();
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        loadProfile();
+      } else {
+        setFetching(false);
+      }
+    });
+    return unsubscribe;
   }, []);
 
   const loadProfile = async () => {
     const user = auth.currentUser;
-    if (!user) return;
+    if (!user) {
+      setFetching(false);
+      return;
+    }
+
+    try {
+      await user.reload();
+    } catch (reloadError) {
+      console.warn("Failed to reload user profile:", reloadError);
+    }
+
     setEmail(user.email || "");
+
     try {
       const userDoc = await getDoc(doc(db, "users", user.uid));
-      setName(
-        userDoc.exists()
-          ? userDoc.data().name || user.displayName || ""
-          : user.displayName || "",
-      );
-      setPhotoURL(
-        userDoc.exists()
-          ? userDoc.data().photoURL || user.photoURL || ""
-          : user.photoURL || "",
-      );
-    } catch {
+
+      if (userDoc.exists()) {
+        const data = userDoc.data();
+        const resolvedPhoto = data.photoURL || user.photoURL || "";
+        const resolvedName = data.name || user.displayName || "";
+        setName(resolvedName);
+        setPhotoURL(resolvedPhoto);
+      } else {
+        setName(user.displayName || "");
+        setPhotoURL(user.photoURL || "");
+      }
+    } catch (err) {
+      console.error("Error loading profile from Firestore:", err);
       setName(user.displayName || "");
       setPhotoURL(user.photoURL || "");
     }
+
     setFetching(false);
   };
 
   const pickImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert(
-        "Permission required",
-        "We need permission to access your photos to change your profile picture.",
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-    });
-
-    if (!result.canceled) {
-      const uri = result.assets?.[0]?.uri || result.uri;
-      if (uri) {
-        setPhotoURL(uri);
+    try {
+      const { status } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission required",
+          "We need permission to access your photos to change your profile picture."
+        );
+        return;
       }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.5, // Keep quality low to stay within Firestore 1MB limit
+        base64: true, // Get base64 directly from the picker
+      });
+
+      if (!result.canceled) {
+        const asset = result.assets?.[0] || result;
+        const base64 = asset?.base64;
+        if (base64) {
+          await saveProfilePhoto(base64);
+        } else {
+          Alert.alert("Error", "Could not read image data.");
+        }
+      }
+    } catch (error) {
+      console.error("Error picking image:", error);
+      Alert.alert("Error", "Failed to pick image: " + error.message);
+    }
+  };
+
+  const saveProfilePhoto = async (base64String) => {
+    const user = auth.currentUser;
+    if (!user || !base64String) return;
+
+    setSavingPhoto(true);
+    try {
+      // Store as a data URI so it can be used directly as an image source
+      const dataUri = `data:image/jpeg;base64,${base64String}`;
+
+      // Check size — Firestore documents have a 1MB limit
+      const sizeInKB = (base64String.length * 3) / 4 / 1024;
+      console.log(`Image size: ~${Math.round(sizeInKB)}KB`);
+      if (sizeInKB > 900) {
+        Alert.alert(
+          "Image too large",
+          "Please choose a smaller image or crop it more tightly."
+        );
+        setSavingPhoto(false);
+        return;
+      }
+
+      // Save base64 image directly to Firestore
+      await setDoc(
+        doc(db, "users", user.uid),
+        { photoURL: dataUri },
+        { merge: true }
+      );
+
+      // Also update Firebase Auth profile
+      // Note: Auth photoURL has a size limit so we store a placeholder marker
+      await updateProfile(user, { photoURL: "firestore_photo" });
+
+      setPhotoURL(dataUri);
+      Alert.alert("Success", "Profile photo updated!");
+    } catch (error) {
+      console.error("Error saving profile photo:", error);
+      Alert.alert("Error", "Unable to save profile photo: " + error.message);
+    } finally {
+      setSavingPhoto(false);
     }
   };
 
@@ -105,36 +180,38 @@ export default function ProfileScreen() {
       Alert.alert("Error", "Email cannot be empty");
       return;
     }
+
     const emailChanged =
       email.trim().toLowerCase() !== (user.email || "").toLowerCase();
     const passwordChanged = newPassword.length > 0;
-    const photoChanged = photoURL.trim() !== (user.photoURL || "");
+    const requiresPassword = emailChanged || passwordChanged;
+
     if (passwordChanged && newPassword.length < 6) {
       Alert.alert("Error", "New password must be at least 6 characters");
       return;
     }
-    if ((passwordChanged || emailChanged || photoChanged) && !currentPassword) {
+    if (requiresPassword && !currentPassword) {
       Alert.alert(
         "Error",
-        "Enter your current password to change email, password, or profile picture",
+        "Enter your current password to change email or password"
       );
       return;
     }
 
     setLoading(true);
     try {
-      if (passwordChanged || emailChanged || photoChanged) {
+      if (requiresPassword) {
         const credential = EmailAuthProvider.credential(
           user.email,
-          currentPassword,
+          currentPassword
         );
         await reauthenticateWithCredential(user, credential);
       }
 
-      if (name.trim() !== user.displayName || photoChanged) {
+      if (name.trim() !== user.displayName) {
         await updateProfile(user, {
           displayName: name.trim(),
-          photoURL: photoURL.trim() || user.photoURL || null,
+          photoURL: user.photoURL || null,
         });
       }
 
@@ -146,20 +223,21 @@ export default function ProfileScreen() {
         await updatePassword(user, newPassword);
       }
 
+      // Only update name and email — never overwrite photoURL here
       await setDoc(
         doc(db, "users", user.uid),
         {
           name: name.trim(),
           email: email.trim(),
-          photoURL: photoURL.trim(),
         },
-        { merge: true },
+        { merge: true }
       );
 
       setCurrentPassword("");
       setNewPassword("");
       Alert.alert("Success", "Profile updated successfully!");
     } catch (error) {
+      console.error("Save error:", error);
       let message = error.message;
       if (error.code === "auth/wrong-password")
         message = "Current password is incorrect";
@@ -178,14 +256,14 @@ export default function ProfileScreen() {
     if (!currentPassword) {
       Alert.alert(
         "Error",
-        "Enter your current password to delete your account.",
+        "Enter your current password to delete your account."
       );
       return;
     }
 
     Alert.alert(
       "Delete Account",
-      "This will permanently delete your account and all your personal information. This cannot be undone.",
+      "This will permanently delete your account and all your data. This cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -196,7 +274,7 @@ export default function ProfileScreen() {
             try {
               const credential = EmailAuthProvider.credential(
                 user.email,
-                currentPassword,
+                currentPassword
               );
               await reauthenticateWithCredential(user, credential);
 
@@ -204,14 +282,17 @@ export default function ProfileScreen() {
               await deleteDoc(doc(db, "users", uid));
 
               const classSnap = await getDocs(
-                query(collection(db, "classes"), where("teacherId", "==", uid)),
+                query(
+                  collection(db, "classes"),
+                  where("teacherId", "==", uid)
+                )
               );
               const classIds = classSnap.docs.map((d) => d.id);
 
               await Promise.all(
                 classIds.map((classId) =>
-                  deleteDoc(doc(db, "classes", classId)),
-                ),
+                  deleteDoc(doc(db, "classes", classId))
+                )
               );
 
               for (let i = 0; i < classIds.length; i += 10) {
@@ -219,13 +300,13 @@ export default function ProfileScreen() {
                 const studentSnap = await getDocs(
                   query(
                     collection(db, "students"),
-                    where("classId", "in", chunk),
-                  ),
+                    where("classId", "in", chunk)
+                  )
                 );
                 await Promise.all(
                   studentSnap.docs.map((d) =>
-                    deleteDoc(doc(db, "students", d.id)),
-                  ),
+                    deleteDoc(doc(db, "students", d.id))
+                  )
                 );
               }
 
@@ -234,13 +315,13 @@ export default function ProfileScreen() {
                 const attSnap = await getDocs(
                   query(
                     collection(db, "attendance"),
-                    where("classId", "in", chunk),
-                  ),
+                    where("classId", "in", chunk)
+                  )
                 );
                 await Promise.all(
                   attSnap.docs.map((d) =>
-                    deleteDoc(doc(db, "attendance", d.id)),
-                  ),
+                    deleteDoc(doc(db, "attendance", d.id))
+                  )
                 );
               }
 
@@ -258,7 +339,7 @@ export default function ProfileScreen() {
             setLoading(false);
           },
         },
-      ],
+      ]
     );
   };
 
@@ -305,19 +386,40 @@ export default function ProfileScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.avatarWrapper} onPress={pickImage}>
+        <TouchableOpacity
+          style={styles.avatarWrapper}
+          onPress={pickImage}
+          disabled={savingPhoto}
+        >
           <View style={styles.avatarCircle}>
             {photoURL ? (
-              <Image source={{ uri: photoURL }} style={styles.avatarImage} />
+              <Image
+                key={photoURL.slice(0, 50)}
+                source={{ uri: photoURL }}
+                style={styles.avatarImage}
+              />
             ) : (
               <Text style={styles.avatarInitials}>{getInitials(name)}</Text>
             )}
           </View>
-          <Text style={styles.editAvatarText}>Change</Text>
+          {savingPhoto ? (
+            <ActivityIndicator
+              color="#FFF"
+              size="small"
+              style={{ marginTop: 6 }}
+            />
+          ) : (
+            <Text style={styles.editAvatarText}>Change</Text>
+          )}
         </TouchableOpacity>
         <Text style={styles.nameText}>{name || "Teacher"}</Text>
         <Text style={styles.emailHeader}>{email}</Text>
         <Text style={styles.role}>Teacher</Text>
+        {savingPhoto && (
+          <View style={styles.savingPhotoRow}>
+            <Text style={styles.savingPhotoText}>Saving profile photo...</Text>
+          </View>
+        )}
       </View>
 
       <ScrollView style={styles.content}>
@@ -393,6 +495,7 @@ export default function ProfileScreen() {
         <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
           <Text style={styles.logoutText}>LOGOUT</Text>
         </TouchableOpacity>
+
         <View style={{ height: 40 }} />
       </ScrollView>
     </View>
@@ -445,7 +548,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     fontSize: 14,
   },
-  inputDisabled: { color: "#999", marginBottom: 4 },
   saveButton: {
     backgroundColor: "#1A3A8F",
     padding: 14,
@@ -470,4 +572,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   logoutText: { color: "#FFF", fontWeight: "bold", fontSize: 15 },
+  savingPhotoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 6,
+  },
+  savingPhotoText: {
+    color: "#FFF",
+    fontSize: 12,
+  },
 });

@@ -112,6 +112,7 @@ export default function CalendarScreen() {
 
   const loadClasses = async () => {
     try {
+      if (!auth.currentUser) return;
       const q = query(
         collection(db, "classes"),
         where("teacherId", "==", auth.currentUser.uid),

@@ -149,6 +149,7 @@ export default function HomeContent({ navigation }) {
   };
 
   const loadClasses = async () => {
+    if (!auth.currentUser) return;
     const q = query(
       collection(db, "classes"),
       where("teacherId", "==", auth.currentUser.uid),
@@ -158,6 +159,7 @@ export default function HomeContent({ navigation }) {
   };
 
   const loadTodaySummary = async () => {
+    if (!auth.currentUser) return;
     const classSnap = await getDocs(
       query(
         collection(db, "classes"),

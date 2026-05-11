@@ -43,6 +43,10 @@ export default function ReportsScreen() {
   }, [selectedClassId]);
 
   const loadClasses = async () => {
+    if (!auth.currentUser) {
+      setLoading(false);
+      return;
+    }
     try {
       const snap = await getDocs(
         query(

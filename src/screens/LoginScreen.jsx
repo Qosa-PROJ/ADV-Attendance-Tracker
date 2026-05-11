@@ -22,22 +22,13 @@ export default function LoginScreen({ navigation }) {
       Alert.alert("Error", "Please fill in all fields");
       return;
     }
-
     setLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      navigation.reset({
-        index: 0,
-        routes: [{ name: "Home" }],
-      });
     } catch (error) {
       let message = error.message;
-      if (
-        error.code === "auth/invalid-credential" ||
-        error.code === "auth/wrong-password"
-      ) {
-        message =
-          "Invalid email or password. Please try again or register a new account.";
+      if (error.code === "auth/invalid-credential" || error.code === "auth/wrong-password") {
+        message = "Invalid email or password. Please try again or register a new account.";
       } else if (error.code === "auth/user-not-found") {
         message = "No account found with this email. Please register first.";
       } else if (error.code === "auth/too-many-requests") {
@@ -54,7 +45,6 @@ export default function LoginScreen({ navigation }) {
         source={require("../../assets/attendance_logo.png")}
         style={styles.logo}
       />
-
       <Text style={styles.title}>Attendance Tracker</Text>
       <Text style={styles.subtitle}>Attendance Monitoring System</Text>
 
@@ -77,14 +67,8 @@ export default function LoginScreen({ navigation }) {
         secureTextEntry
       />
 
-      <TouchableOpacity
-        style={styles.button}
-        onPress={handleLogin}
-        disabled={loading}
-      >
-        <Text style={styles.buttonText}>
-          {loading ? "SIGNING IN..." : "SIGN IN"}
-        </Text>
+      <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
+        <Text style={styles.buttonText}>{loading ? "SIGNING IN..." : "SIGN IN"}</Text>
       </TouchableOpacity>
 
       <View style={styles.footer}>
@@ -98,45 +82,13 @@ export default function LoginScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-    padding: 32,
-    justifyContent: "center",
-  },
+  container: { flex: 1, backgroundColor: "#FFFFFF", padding: 32, justifyContent: "center" },
   logo: { width: 126, height: 126, alignSelf: "center", marginBottom: 16 },
-  title: {
-    fontSize: 32,
-    fontWeight: "bold",
-    color: "#CC0000",
-    textAlign: "center",
-  },
-  subtitle: {
-    fontSize: 12,
-    color: "#1A3A8F",
-    textAlign: "center",
-    marginBottom: 40,
-  },
-  label: {
-    fontSize: 13,
-    color: "#CC0000",
-    fontWeight: "bold",
-    marginBottom: 4,
-  },
-  input: {
-    backgroundColor: "#F5F5F5",
-    padding: 14,
-    borderRadius: 8,
-    marginBottom: 16,
-    fontSize: 14,
-  },
-  button: {
-    backgroundColor: "#CC0000",
-    padding: 16,
-    borderRadius: 8,
-    alignItems: "center",
-    marginTop: 8,
-  },
+  title: { fontSize: 32, fontWeight: "bold", color: "#CC0000", textAlign: "center" },
+  subtitle: { fontSize: 12, color: "#1A3A8F", textAlign: "center", marginBottom: 40 },
+  label: { fontSize: 13, color: "#CC0000", fontWeight: "bold", marginBottom: 4 },
+  input: { backgroundColor: "#F5F5F5", padding: 14, borderRadius: 8, marginBottom: 16, fontSize: 14 },
+  button: { backgroundColor: "#CC0000", padding: 16, borderRadius: 8, alignItems: "center", marginTop: 8 },
   buttonText: { color: "#FFF", fontWeight: "bold", fontSize: 15 },
   footer: { flexDirection: "row", justifyContent: "center", marginTop: 24 },
   link: { color: "#1A3A8F", fontWeight: "bold" },

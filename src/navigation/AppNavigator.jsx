@@ -11,30 +11,70 @@ import HomeScreen from "../screens/HomeScreen";
 
 const Stack = createNativeStackNavigator();
 
+let isRegistering = false;
+export const setIsRegistering = (val) => { isRegistering = val; };
+
 export default function AppNavigator() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [authStatus, setAuthStatus] = useState("loading");
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(firebaseAuth, (currentUser) => {
-      setUser(currentUser);
-      setLoading(false);
+      if (isRegistering) return;
+      if (currentUser) {
+        setAuthStatus("authed");
+        return;
+      }
+      setAuthStatus((prev) => (prev === "login" ? "login" : "guest"));
     });
     return unsubscribe;
   }, []);
 
-  if (loading) return null;
+  if (authStatus === "loading") return null;
+
+  const onRegistered = () => {
+    isRegistering = false;
+    setAuthStatus("login");
+  };
+
+  const onSignOut = () => setAuthStatus("guest");
+
+  if (authStatus === "authed") {
+    return (
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Home" options={{ animationEnabled: false }}>
+          {(props) => <HomeScreen {...props} onSignOut={onSignOut} />}
+        </Stack.Screen>
+      </Stack.Navigator>
+    );
+  }
+
+  if (authStatus === "login") {
+    return (
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen
+          name="Login"
+          component={LoginScreen}
+          options={{ animationEnabled: false }}
+        />
+      </Stack.Navigator>
+    );
+  }
 
   return (
-    <Stack.Navigator
-      key={user ? "authenticated" : "unauthenticated"}
-      initialRouteName={user ? "Home" : "Main"}
-      screenOptions={{ headerShown: false }}
-    >
-      <Stack.Screen name="Main" component={MainScreen} />
-      <Stack.Screen name="Login" component={LoginScreen} />
-      <Stack.Screen name="Register" component={RegisterScreen} />
-      <Stack.Screen name="Home" component={HomeScreen} />
+    <Stack.Navigator screenOptions={{ headerShown: false }}>
+      <Stack.Screen
+        name="Main"
+        component={MainScreen}
+        options={{ animationEnabled: false }}
+      />
+      <Stack.Screen
+        name="Login"
+        component={LoginScreen}
+        options={{ animationEnabled: false }}
+      />
+      <Stack.Screen name="Register" options={{ animationEnabled: false }}>
+        {(props) => <RegisterScreen {...props} onRegistered={onRegistered} />}
+      </Stack.Screen>
     </Stack.Navigator>
   );
 }
