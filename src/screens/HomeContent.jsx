@@ -1,5 +1,5 @@
 // src/screens/HomeContent.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,8 +9,15 @@ import {
   TouchableOpacity,
   Modal,
 } from "react-native";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  onSnapshot,
+} from "firebase/firestore";
 import { db, auth } from "../FireBase/FireBaseConfig";
+import { useFocusEffect } from "@react-navigation/native";
 
 export default function HomeContent({ navigation }) {
   const [userName, setUserName] = useState("Teacher");
@@ -30,7 +37,6 @@ export default function HomeContent({ navigation }) {
   const [classStudents, setClassStudents] = useState([]);
   const [studentAttendanceSummary, setStudentAttendanceSummary] = useState({});
   const [loadingOverview, setLoadingOverview] = useState(false);
-  const [loadError, setLoadError] = useState(null);
 
   const todayStr = new Date().toISOString().split("T")[0];
   const todayFormatted = new Date().toLocaleDateString("en-US", {
@@ -47,25 +53,39 @@ export default function HomeContent({ navigation }) {
           auth.currentUser.email?.split("@")[0] ||
           "Teacher",
       );
-      loadData();
     }
   }, []);
 
-  const loadData = async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      await Promise.all([loadClasses(), loadTodaySummary()]);
-    } catch (e) {
-      console.error(e);
-      const message =
-        e?.message?.includes("permission") || e?.message?.includes("Permission")
-          ? "You do not have permission to access Firestore. Check your Firebase rules and project configuration."
-          : e?.message || "Failed to load data.";
-      setLoadError(message);
-    }
-    setLoading(false);
-  };
+  useEffect(() => {
+    if (!auth.currentUser) return;
+
+    const q = query(
+      collection(db, "classes"),
+      where("teacherId", "==", auth.currentUser.uid),
+    );
+
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const classList = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setClasses(classList);
+      },
+      (error) => {
+        console.error("Error listening to classes:", error);
+      },
+    );
+
+    return unsubscribe; // Cleanup on unmount
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (auth.currentUser) {
+        setLoading(true);
+        loadTodaySummary();
+      }
+    }, []),
+  );
 
   const loadClassOverview = async (cls) => {
     setActiveClass(cls);
@@ -148,53 +168,59 @@ export default function HomeContent({ navigation }) {
     setClassSummary({ present: 0, absent: 0, late: 0, rate: 0 });
   };
 
-  const loadClasses = async () => {
-    if (!auth.currentUser) return;
-    const q = query(
-      collection(db, "classes"),
-      where("teacherId", "==", auth.currentUser.uid),
-    );
-    const snapshot = await getDocs(q);
-    setClasses(snapshot.docs.map((d) => ({ id: d.id, ...d.data() })));
-  };
-
   const loadTodaySummary = async () => {
     if (!auth.currentUser) return;
-    const classSnap = await getDocs(
-      query(
-        collection(db, "classes"),
-        where("teacherId", "==", auth.currentUser.uid),
-      ),
-    );
-    const classIds = classSnap.docs.map((d) => d.id);
-    if (classIds.length === 0) return;
 
-    let allRecords = [];
-    const chunkSize = 30;
-    for (let i = 0; i < classIds.length; i += chunkSize) {
-      const chunk = classIds.slice(i, i + chunkSize);
-      const snap = await getDocs(
+    try {
+      const classSnap = await getDocs(
         query(
-          collection(db, "attendance"),
-          where("classId", "in", chunk),
-          where("date", "==", todayStr),
+          collection(db, "classes"),
+          where("teacherId", "==", auth.currentUser.uid),
         ),
       );
-      allRecords = [...allRecords, ...snap.docs.map((d) => d.data())];
-    }
+      const classIds = classSnap.docs.map((d) => d.id);
+      if (classIds.length === 0) {
+        setPresent(0);
+        setAbsent(0);
+        setLate(0);
+        setLoading(false);
+        return;
+      }
 
-    let p = 0,
-      a = 0,
-      l = 0;
-    for (const rec of allRecords) {
-      const s = rec.status?.toLowerCase();
-      if (s === "present") p++;
-      else if (s === "absent") a++;
-      else if (s === "late") l++;
+      let allRecords = [];
+      const chunkSize = 30;
+      for (let i = 0; i < classIds.length; i += chunkSize) {
+        const chunk = classIds.slice(i, i + chunkSize);
+        const snap = await getDocs(
+          query(
+            collection(db, "attendance"),
+            where("classId", "in", chunk),
+            where("date", "==", todayStr),
+          ),
+        );
+        allRecords = [...allRecords, ...snap.docs.map((d) => d.data())];
+      }
+
+      let p = 0,
+        a = 0,
+        l = 0;
+      for (const rec of allRecords) {
+        const s = rec.status?.toLowerCase();
+        if (s === "present") p++;
+        else if (s === "absent") a++;
+        else if (s === "late") l++;
+      }
+      setPresent(p);
+      setAbsent(a);
+      setLate(l);
+    } catch (error) {
+      console.error("Error loading today summary:", error);
+      setPresent(0);
+      setAbsent(0);
+      setLate(0);
+    } finally {
+      setLoading(false);
     }
-    setPresent(p);
-    setAbsent(a);
-    setLate(l);
   };
 
   return (
@@ -210,12 +236,7 @@ export default function HomeContent({ navigation }) {
       >
         <Text style={styles.sectionTitle}>Today's Overall Summary</Text>
 
-        {loadError ? (
-          <View style={styles.errorContainer}>
-            <Text style={styles.errorTitle}>Permission Error</Text>
-            <Text style={styles.errorText}>{loadError}</Text>
-          </View>
-        ) : loading ? (
+        {loading ? (
           <ActivityIndicator color="#CC0000" style={{ marginVertical: 20 }} />
         ) : (
           <View style={styles.summaryContainer}>
@@ -483,23 +504,4 @@ const styles = StyleSheet.create({
   },
   studentTotal: { fontSize: 13, fontWeight: "bold", marginRight: 16 },
   attendanceHistory: { marginTop: 8, fontSize: 12, color: "#555" },
-  errorContainer: {
-    backgroundColor: "#FEE2E2",
-    borderColor: "#FCA5A5",
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 16,
-    marginBottom: 16,
-  },
-  errorTitle: {
-    fontSize: 15,
-    fontWeight: "bold",
-    color: "#B91C1C",
-    marginBottom: 8,
-  },
-  errorText: {
-    fontSize: 13,
-    color: "#991B1B",
-    lineHeight: 20,
-  },
 });
