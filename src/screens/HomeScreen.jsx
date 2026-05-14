@@ -21,7 +21,7 @@ const ICONS = {
   Profile: require("../../assets/user.png"),
 };
 
-export default function HomeScreen() {
+export default function HomeScreen({ onSignOut }) {
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -45,7 +45,9 @@ export default function HomeScreen() {
       <Tab.Screen name="Calendar" component={CalendarScreen} />
       <Tab.Screen name="Seating" component={SeatingScreen} />
       <Tab.Screen name="Reports" component={ReportsScreen} />
-      <Tab.Screen name="Profile" component={ProfileScreen} />
+      <Tab.Screen name="Profile">
+        {(props) => <ProfileScreen {...props} onSignOut={onSignOut} />}
+      </Tab.Screen>
     </Tab.Navigator>
   );
 }

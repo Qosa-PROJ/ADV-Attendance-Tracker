@@ -11,7 +11,6 @@ import {
   ActivityIndicator,
   Image,
 } from "react-native";
-import * as ImagePicker from "expo-image-picker";
 import { auth, db } from "../FireBase/FireBaseConfig";
 import {
   signOut,
@@ -34,7 +33,16 @@ import {
   where,
 } from "firebase/firestore";
 
-export default function ProfileScreen() {
+// Safely detect web without using Platform (avoids PlatformConstants native module crash)
+const isWeb = typeof document !== "undefined";
+
+// Conditionally import ImagePicker only on native platforms
+let ImagePicker;
+if (!isWeb) {
+  ImagePicker = require("expo-image-picker");
+}
+
+export default function ProfileScreen({ onSignOut }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [photoURL, setPhotoURL] = useState("");
@@ -93,13 +101,18 @@ export default function ProfileScreen() {
   };
 
   const pickImage = async () => {
+    if (!ImagePicker) {
+      Alert.alert("Not supported", "Image picker is not available on web");
+      return;
+    }
+
     try {
       const { status } =
         await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== "granted") {
         Alert.alert(
           "Permission required",
-          "We need permission to access your photos to change your profile picture."
+          "We need permission to access your photos to change your profile picture.",
         );
         return;
       }
@@ -108,8 +121,8 @@ export default function ProfileScreen() {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.5, // Keep quality low to stay within Firestore 1MB limit
-        base64: true, // Get base64 directly from the picker
+        quality: 0.5,
+        base64: true,
       });
 
       if (!result.canceled) {
@@ -133,30 +146,25 @@ export default function ProfileScreen() {
 
     setSavingPhoto(true);
     try {
-      // Store as a data URI so it can be used directly as an image source
       const dataUri = `data:image/jpeg;base64,${base64String}`;
 
-      // Check size — Firestore documents have a 1MB limit
       const sizeInKB = (base64String.length * 3) / 4 / 1024;
       console.log(`Image size: ~${Math.round(sizeInKB)}KB`);
       if (sizeInKB > 900) {
         Alert.alert(
           "Image too large",
-          "Please choose a smaller image or crop it more tightly."
+          "Please choose a smaller image or crop it more tightly.",
         );
         setSavingPhoto(false);
         return;
       }
 
-      // Save base64 image directly to Firestore
       await setDoc(
         doc(db, "users", user.uid),
         { photoURL: dataUri },
-        { merge: true }
+        { merge: true },
       );
 
-      // Also update Firebase Auth profile
-      // Note: Auth photoURL has a size limit so we store a placeholder marker
       await updateProfile(user, { photoURL: "firestore_photo" });
 
       setPhotoURL(dataUri);
@@ -193,7 +201,7 @@ export default function ProfileScreen() {
     if (requiresPassword && !currentPassword) {
       Alert.alert(
         "Error",
-        "Enter your current password to change email or password"
+        "Enter your current password to change email or password",
       );
       return;
     }
@@ -203,7 +211,7 @@ export default function ProfileScreen() {
       if (requiresPassword) {
         const credential = EmailAuthProvider.credential(
           user.email,
-          currentPassword
+          currentPassword,
         );
         await reauthenticateWithCredential(user, credential);
       }
@@ -223,14 +231,13 @@ export default function ProfileScreen() {
         await updatePassword(user, newPassword);
       }
 
-      // Only update name and email — never overwrite photoURL here
       await setDoc(
         doc(db, "users", user.uid),
         {
           name: name.trim(),
           email: email.trim(),
         },
-        { merge: true }
+        { merge: true },
       );
 
       setCurrentPassword("");
@@ -256,108 +263,98 @@ export default function ProfileScreen() {
     if (!currentPassword) {
       Alert.alert(
         "Error",
-        "Enter your current password to delete your account."
+        "Enter your current password to delete your account.",
       );
       return;
     }
 
-    Alert.alert(
-      "Delete Account",
-      "This will permanently delete your account and all your data. This cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const credential = EmailAuthProvider.credential(
-                user.email,
-                currentPassword
-              );
-              await reauthenticateWithCredential(user, credential);
+    const doDelete = async () => {
+      setLoading(true);
+      try {
+        const credential = EmailAuthProvider.credential(
+          user.email,
+          currentPassword,
+        );
+        await reauthenticateWithCredential(user, credential);
 
-              const uid = user.uid;
-              await deleteDoc(doc(db, "users", uid));
+        const classSnap = await getDocs(
+          query(collection(db, "classes"), where("teacherId", "==", user.uid)),
+        );
+        const classIds = classSnap.docs.map((d) => d.id);
 
-              const classSnap = await getDocs(
-                query(
-                  collection(db, "classes"),
-                  where("teacherId", "==", uid)
-                )
-              );
-              const classIds = classSnap.docs.map((d) => d.id);
+        await Promise.all(
+          classSnap.docs.map((d) => deleteDoc(doc(db, "classes", d.id))),
+        );
 
-              await Promise.all(
-                classIds.map((classId) =>
-                  deleteDoc(doc(db, "classes", classId))
-                )
-              );
+        const studentSnap = await getDocs(
+          query(collection(db, "students"), where("teacherId", "==", user.uid)),
+        );
+        await Promise.all(
+          studentSnap.docs.map((d) => deleteDoc(doc(db, "students", d.id))),
+        );
 
-              for (let i = 0; i < classIds.length; i += 10) {
-                const chunk = classIds.slice(i, i + 10);
-                const studentSnap = await getDocs(
-                  query(
-                    collection(db, "students"),
-                    where("classId", "in", chunk)
-                  )
-                );
-                await Promise.all(
-                  studentSnap.docs.map((d) =>
-                    deleteDoc(doc(db, "students", d.id))
-                  )
-                );
-              }
+        for (let i = 0; i < classIds.length; i += 10) {
+          const chunk = classIds.slice(i, i + 10);
+          const attSnap = await getDocs(
+            query(collection(db, "attendance"), where("classId", "in", chunk)),
+          );
+          await Promise.all(
+            attSnap.docs.map((d) => deleteDoc(doc(db, "attendance", d.id))),
+          );
+        }
 
-              for (let i = 0; i < classIds.length; i += 10) {
-                const chunk = classIds.slice(i, i + 10);
-                const attSnap = await getDocs(
-                  query(
-                    collection(db, "attendance"),
-                    where("classId", "in", chunk)
-                  )
-                );
-                await Promise.all(
-                  attSnap.docs.map((d) =>
-                    deleteDoc(doc(db, "attendance", d.id))
-                  )
-                );
-              }
+        await deleteUser(user);
+        Alert.alert("Success", "Your account has been deleted.");
+      } catch (error) {
+        let message = error.message;
+        if (error.code === "auth/wrong-password")
+          message = "Current password is incorrect";
+        else if (error.code === "auth/requires-recent-login")
+          message =
+            "Please re-open the app and try again to delete your account.";
+        Alert.alert("Error", message);
+      }
+      setLoading(false);
+    };
 
-              await deleteUser(user);
-              Alert.alert("Success", "Your account has been deleted.");
-            } catch (error) {
-              let message = error.message;
-              if (error.code === "auth/wrong-password")
-                message = "Current password is incorrect";
-              else if (error.code === "auth/requires-recent-login")
-                message =
-                  "Please re-open the app and try again to delete your account.";
-              Alert.alert("Error", message);
-            }
-            setLoading(false);
-          },
-        },
-      ]
-    );
+    if (isWeb) {
+      const confirmed = window.confirm(
+        "This will permanently delete your account and all your data. This cannot be undone. Are you sure?",
+      );
+      if (confirmed) await doDelete();
+    } else {
+      Alert.alert(
+        "Delete Account",
+        "This will permanently delete your account and all your data. This cannot be undone.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Delete", style: "destructive", onPress: doDelete },
+        ],
+      );
+    }
   };
 
-  const handleLogout = () => {
-    Alert.alert("Logout", "Are you sure?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Logout",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await signOut(auth);
-          } catch {
-            Alert.alert("Error", "Failed to log out");
-          }
-        },
-      },
-    ]);
+  const handleLogout = async () => {
+    const doSignOut = async () => {
+      try {
+        await signOut(auth);
+        if (onSignOut) {
+          onSignOut();
+        }
+      } catch {
+        Alert.alert("Error", "Failed to log out");
+      }
+    };
+
+    if (isWeb) {
+      const confirmed = window.confirm("Are you sure you want to log out?");
+      if (confirmed) await doSignOut();
+    } else {
+      Alert.alert("Logout", "Are you sure?", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Logout", style: "destructive", onPress: doSignOut },
+      ]);
+    }
   };
 
   const getInitials = (n) =>
