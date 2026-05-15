@@ -1,4 +1,3 @@
-import { Alert as RNAlert } from "react-native";
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -9,7 +8,6 @@ import {
   TextInput,
   Modal,
 } from "react-native";
-
 import { db, auth } from "../FireBase/FireBaseConfig";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -23,136 +21,7 @@ import {
   setDoc,
   serverTimestamp,
 } from "firebase/firestore";
-
-const isWeb = typeof document !== "undefined";
-
-function useWebAlert() {
-  const [alertConfig, setAlertConfig] = React.useState(null);
-
-  const showAlert = React.useCallback((title, message, buttons) => {
-    if (!isWeb) {
-      RNAlert.alert(title, message, buttons);
-      return;
-    }
-    const resolvedButtons =
-      buttons && buttons.length > 0
-        ? buttons
-        : [{ text: "OK", style: "default" }];
-    setAlertConfig({ title, message, buttons: resolvedButtons });
-  }, []);
-
-  const handlePress = (btn) => {
-    setAlertConfig(null);
-    if (btn.onPress) btn.onPress();
-  };
-
-  const AlertModal = alertConfig ? (
-    <Modal
-      transparent
-      visible
-      animationType="fade"
-      onRequestClose={() => setAlertConfig(null)}
-    >
-      <View style={alertStyles.overlay}>
-        <View style={alertStyles.dialog}>
-          {alertConfig.title ? (
-            <Text style={alertStyles.title}>{alertConfig.title}</Text>
-          ) : null}
-          {alertConfig.message ? (
-            <Text style={alertStyles.message}>{alertConfig.message}</Text>
-          ) : null}
-          <View
-            style={[
-              alertStyles.buttonRow,
-              alertConfig.buttons.length > 2 && alertStyles.buttonColumn,
-            ]}
-          >
-            {alertConfig.buttons.map((btn, idx) => {
-              const isDestructive = btn.style === "destructive";
-              const isCancel = btn.style === "cancel";
-              return (
-                <TouchableOpacity
-                  key={idx}
-                  style={[
-                    alertStyles.btn,
-                    isDestructive && alertStyles.btnDestructive,
-                    isCancel && alertStyles.btnCancel,
-                    alertConfig.buttons.length === 1 && alertStyles.btnSingle,
-                    alertConfig.buttons.length > 2 && alertStyles.btnFull,
-                  ]}
-                  onPress={() => handlePress(btn)}
-                >
-                  <Text
-                    style={[
-                      alertStyles.btnText,
-                      isCancel && alertStyles.btnTextCancel,
-                    ]}
-                  >
-                    {btn.text}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        </View>
-      </View>
-    </Modal>
-  ) : null;
-
-  return { showAlert, AlertModal };
-}
-
-const alertStyles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 32,
-  },
-  dialog: {
-    backgroundColor: "#FFF",
-    borderRadius: 16,
-    padding: 24,
-    width: "100%",
-    maxWidth: 340,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.2,
-    shadowRadius: 32,
-    elevation: 12,
-  },
-  title: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: "#111",
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  message: {
-    fontSize: 14,
-    color: "#444",
-    textAlign: "center",
-    lineHeight: 20,
-    marginBottom: 20,
-  },
-  buttonRow: { flexDirection: "row", gap: 10, justifyContent: "center" },
-  buttonColumn: { flexDirection: "column", gap: 8 },
-  btn: {
-    flex: 1,
-    backgroundColor: "#CC0000",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 9,
-    alignItems: "center",
-  },
-  btnSingle: { flex: 0, paddingHorizontal: 48 },
-  btnFull: { flex: 0, width: "100%" },
-  btnDestructive: { backgroundColor: "#8B0000" },
-  btnCancel: { backgroundColor: "#F0F0F0" },
-  btnText: { color: "#FFF", fontWeight: "700", fontSize: 14 },
-  btnTextCancel: { color: "#333" },
-});
+import useWebAlert from "../components/WebAlertModal";
 
 export default function AttendanceScreen({ route }) {
   const { showAlert, AlertModal } = useWebAlert();
@@ -188,16 +57,12 @@ export default function AttendanceScreen({ route }) {
     rate: 0,
   });
   const [studentAttendanceSummary, setStudentAttendanceSummary] = useState({});
-
   const [loading, setLoading] = useState(false);
-  const [firestorePermissionError, setFirestorePermissionError] =
-    useState(false);
+  const [permissionError, setPermissionError] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
-    });
-    return unsubscribe;
+    const unsub = onAuthStateChanged(auth, (user) => setCurrentUser(user));
+    return unsub;
   }, []);
 
   useEffect(() => {
@@ -207,57 +72,6 @@ export default function AttendanceScreen({ route }) {
   useEffect(() => {
     if (selectedClassId) loadStudents(selectedClassId, false);
   }, [selectedClassId]);
-
-  const loadClassOverviewData = async (classId) => {
-    if (!classId) return;
-    try {
-      const snap = await getDocs(
-        query(collection(db, "attendance"), where("classId", "==", classId)),
-      );
-
-      let p = 0,
-        a = 0,
-        l = 0;
-      const summary = {};
-
-      snap.docs.forEach((d) => {
-        const record = d.data();
-        const sid = record.studentId;
-        const status = record.status?.toLowerCase();
-
-        if (!summary[sid]) {
-          summary[sid] = { present: 0, absent: 0, late: 0, records: [] };
-        }
-
-        if (status === "present") {
-          p++;
-          summary[sid].present++;
-        } else if (status === "absent") {
-          a++;
-          summary[sid].absent++;
-        } else if (status === "late") {
-          l++;
-          summary[sid].late++;
-        }
-
-        summary[sid].records.push({ date: record.date, status: record.status });
-      });
-
-      Object.values(summary).forEach((entry) => {
-        entry.records.sort((x, y) => y.date.localeCompare(x.date));
-      });
-
-      const total = p + a + l;
-      const rate = total === 0 ? 0 : Math.round((p / total) * 100);
-
-      setClassSummary({ present: p, absent: a, late: l, rate });
-      setStudentAttendanceSummary(summary);
-    } catch (error) {
-      console.error("Failed to load class overview data:", error);
-      setClassSummary({ present: 0, absent: 0, late: 0, rate: 0 });
-      setStudentAttendanceSummary({});
-    }
-  };
 
   useEffect(() => {
     if (route?.params?.classId) {
@@ -275,32 +89,76 @@ export default function AttendanceScreen({ route }) {
 
   useEffect(() => {
     if (classes.length > 0 && route?.params?.classId) {
-      const selected = classes.find((cls) => cls.id === route.params.classId);
-      if (selected) {
-        setCurrentClassName(`${selected.subject_name} – ${selected.section}`);
-      }
+      const cls = classes.find((c) => c.id === route.params.classId);
+      if (cls) setCurrentClassName(`${cls.subject_name} – ${cls.section}`);
     }
   }, [classes, route?.params?.classId]);
+
+  const loadClassOverviewData = async (classId) => {
+    if (!classId) return;
+    try {
+      const snap = await getDocs(
+        query(collection(db, "attendance"), where("classId", "==", classId)),
+      );
+      let p = 0,
+        a = 0,
+        l = 0;
+      const summary = {};
+
+      snap.docs.forEach((d) => {
+        const rec = d.data();
+        const sid = rec.studentId;
+        const status = rec.status?.toLowerCase();
+        if (!summary[sid])
+          summary[sid] = { present: 0, absent: 0, late: 0, records: [] };
+        if (status === "present") {
+          p++;
+          summary[sid].present++;
+        } else if (status === "absent") {
+          a++;
+          summary[sid].absent++;
+        } else if (status === "late") {
+          l++;
+          summary[sid].late++;
+        }
+        summary[sid].records.push({ date: rec.date, status: rec.status });
+      });
+
+      Object.values(summary).forEach((e) =>
+        e.records.sort((x, y) => y.date.localeCompare(x.date)),
+      );
+
+      const total = p + a + l;
+      setClassSummary({
+        present: p,
+        absent: a,
+        late: l,
+        rate: total === 0 ? 0 : Math.round((p / total) * 100),
+      });
+      setStudentAttendanceSummary(summary);
+    } catch (err) {
+      console.error("Failed to load class overview:", err);
+      setClassSummary({ present: 0, absent: 0, late: 0, rate: 0 });
+      setStudentAttendanceSummary({});
+    }
+  };
 
   const loadClasses = async () => {
     const user = auth.currentUser || currentUser;
     if (!user) return;
     setLoading(true);
     try {
-      const q = query(
-        collection(db, "classes"),
-        where("teacherId", "==", user.uid),
+      const snap = await getDocs(
+        query(collection(db, "classes"), where("teacherId", "==", user.uid)),
       );
-      const snapshot = await getDocs(q);
-      const classList = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setClasses(classList);
-    } catch (error) {
-      console.error("Error loading classes:", error);
+      setClasses(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    } catch (err) {
+      console.error("Error loading classes:", err);
       if (
-        error.code === "permission-denied" ||
-        error.message?.includes("Missing or insufficient permissions")
+        err.code === "permission-denied" ||
+        err.message?.includes("Missing or insufficient permissions")
       ) {
-        setFirestorePermissionError(true);
+        setPermissionError(true);
       }
       showAlert("Error", "Failed to load classes");
     }
@@ -309,24 +167,19 @@ export default function AttendanceScreen({ route }) {
 
   const loadStudents = async (classId, forModal = false) => {
     try {
-      const q = query(
-        collection(db, "students"),
-        where("classId", "==", classId),
+      const snap = await getDocs(
+        query(collection(db, "students"), where("classId", "==", classId)),
       );
-      const snapshot = await getDocs(q);
-      const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      if (forModal) {
-        setModalStudents(list);
-      } else {
-        setStudents(list);
-      }
-    } catch (error) {
-      console.error("Error loading students:", error);
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      if (forModal) setModalStudents(list);
+      else setStudents(list);
+    } catch (err) {
+      console.error("Error loading students:", err);
       if (
-        error.code === "permission-denied" ||
-        error.message?.includes("Missing or insufficient permissions")
+        err.code === "permission-denied" ||
+        err.message?.includes("Missing or insufficient permissions")
       ) {
-        setFirestorePermissionError(true);
+        setPermissionError(true);
       }
       showAlert("Error", "Failed to load students");
     }
@@ -352,23 +205,22 @@ export default function AttendanceScreen({ route }) {
       return;
     }
     try {
-      const q = query(
-        collection(db, "students"),
-        where("classId", "==", currentClassId),
-        where("student_number", "==", studentNumber),
+      const existing = await getDocs(
+        query(
+          collection(db, "students"),
+          where("classId", "==", currentClassId),
+          where("student_number", "==", studentNumber),
+        ),
       );
-      const snapshot = await getDocs(q);
-      if (!snapshot.empty) {
+      if (!existing.empty) {
         showAlert("Error", "Student ID already exists in this class");
         return;
       }
-
-      const studentDocId = `${currentClassId}_${studentNumber}_${studentName}`
+      const docId = `${currentClassId}_${studentNumber}_${studentName}`
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "_")
         .replace(/^_+|_+$/g, "_");
-
-      await setDoc(doc(db, "students", studentDocId), {
+      await setDoc(doc(db, "students", docId), {
         classId: currentClassId,
         name: studentName,
         student_number: studentNumber,
@@ -398,20 +250,17 @@ export default function AttendanceScreen({ route }) {
       showAlert("Error", "Please enter subject name and section");
       return;
     }
-
     const user = auth.currentUser || currentUser;
     if (!user) {
       showAlert("Error", "You must be logged in to add a class");
       return;
     }
-
     try {
-      const classDocId = `${user.uid}_${subjectName}_${section}`
+      const docId = `${user.uid}_${subjectName}_${section}`
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "_")
         .replace(/^_+|_+$/g, "_");
-
-      await setDoc(doc(db, "classes", classDocId), {
+      await setDoc(doc(db, "classes", docId), {
         teacherId: user.uid,
         subject_name: subjectName,
         section,
@@ -423,15 +272,15 @@ export default function AttendanceScreen({ route }) {
       setSection("");
       setSchedule("");
       loadClasses();
-    } catch (error) {
-      console.error("Error adding class:", error);
+    } catch (err) {
+      console.error("Error adding class:", err);
       if (
-        error.code === "permission-denied" ||
-        error.message?.includes("Missing or insufficient permissions")
+        err.code === "permission-denied" ||
+        err.message?.includes("Missing or insufficient permissions")
       ) {
-        setFirestorePermissionError(true);
+        setPermissionError(true);
       }
-      showAlert("Error", `Failed to add class: ${error.message}`);
+      showAlert("Error", `Failed to add class: ${err.message}`);
     }
   };
 
@@ -447,8 +296,8 @@ export default function AttendanceScreen({ route }) {
     setLoading(true);
     try {
       const user = auth.currentUser || currentUser;
-      const promises = Object.entries(attendanceMap).map(
-        async ([studentId, status]) => {
+      await Promise.all(
+        Object.entries(attendanceMap).map(async ([studentId, status]) => {
           const existing = await getDocs(
             query(
               collection(db, "attendance"),
@@ -467,18 +316,17 @@ export default function AttendanceScreen({ route }) {
             date: attendanceDate,
             createdAt: serverTimestamp(),
           });
-        },
+        }),
       );
-      await Promise.all(promises);
       showAlert("Success", "Attendance saved!");
       setAttendanceMap({});
-    } catch (error) {
-      console.error("Error saving attendance:", error);
+    } catch (err) {
+      console.error("Error saving attendance:", err);
       if (
-        error.code === "permission-denied" ||
-        error.message?.includes("Missing or insufficient permissions")
+        err.code === "permission-denied" ||
+        err.message?.includes("Missing or insufficient permissions")
       ) {
-        setFirestorePermissionError(true);
+        setPermissionError(true);
       }
       showAlert("Error", "Failed to save attendance");
     }
@@ -495,21 +343,21 @@ export default function AttendanceScreen({ route }) {
     });
   };
 
-  const filteredStudents = students.filter(
+  const filtered = students.filter(
     (s) =>
       s.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       s.student_number?.includes(searchQuery),
   );
 
-  if (firestorePermissionError) {
+  const selectedClass = classes.find((c) => c.id === selectedClassId);
+
+  if (permissionError) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
-        <Text style={styles.sectionTitle}>Firestore Permission Error</Text>
-        <Text style={styles.comingSoon}>
-          Your app is connected to Firestore, but your database rules currently
-          block reading or writing data. Update your Firestore security rules in
-          the Firebase console to allow authenticated users to access the
-          collections.
+      <View style={[s.container, s.center]}>
+        <Text style={s.sectionTitle}>Firestore Permission Error</Text>
+        <Text style={s.emptyText}>
+          Your Firestore rules are blocking read/write access. Update your
+          security rules in the Firebase console to allow authenticated users.
         </Text>
       </View>
     );
@@ -517,81 +365,74 @@ export default function AttendanceScreen({ route }) {
 
   if (!currentUser && !auth.currentUser) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
-        <Text style={styles.comingSoon}>
-          Please log in to access attendance features
+      <View style={[s.container, s.center]}>
+        <Text style={s.emptyText}>
+          Please log in to access attendance features.
         </Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Classes and Students</Text>
+    <View style={s.container}>
+      <View style={s.header}>
+        <Text style={s.headerTitle}>Classes and Students</Text>
       </View>
 
-      <View style={styles.tabContainer}>
-        {["My Classes", "Mark Attendance"].map((label, index) => (
+      <View style={s.tabRow}>
+        {["My Classes", "Mark Attendance"].map((label, i) => (
           <TouchableOpacity
-            key={index}
-            style={[styles.tab, activeTab === index && styles.activeTab]}
-            onPress={() => setActiveTab(index)}
+            key={i}
+            style={[s.tab, activeTab === i && s.activeTab]}
+            onPress={() => setActiveTab(i)}
           >
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === index && styles.activeTabText,
-              ]}
-            >
+            <Text style={[s.tabText, activeTab === i && s.activeTabText]}>
               {label}
             </Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={s.content}>
         {activeTab === 0 && (
           <View>
-            <Text style={styles.sectionTitle}>Add New Class</Text>
+            <Text style={s.sectionTitle}>Add New Class</Text>
             <TextInput
-              style={styles.input}
+              style={s.input}
               placeholder="Subject Name"
               value={subjectName}
               onChangeText={setSubjectName}
             />
             <TextInput
-              style={styles.input}
+              style={s.input}
               placeholder="Section (e.g. A-101)"
               value={section}
               onChangeText={setSection}
             />
             <TextInput
-              style={styles.input}
+              style={s.input}
               placeholder="Schedule (e.g. MW 8:00 AM)"
               value={schedule}
               onChangeText={setSchedule}
             />
-            <TouchableOpacity style={styles.addButton} onPress={addNewClass}>
-              <Text style={styles.buttonText}>ADD CLASS</Text>
+            <TouchableOpacity style={s.addButton} onPress={addNewClass}>
+              <Text style={s.btnText}>ADD CLASS</Text>
             </TouchableOpacity>
 
-            <Text style={styles.sectionTitle}>
-              Your Classes ({classes.length})
-            </Text>
+            <Text style={s.sectionTitle}>Your Classes ({classes.length})</Text>
             {classes.length === 0 && (
-              <Text style={styles.emptyText}>No classes yet.</Text>
+              <Text style={s.emptyText}>No classes yet.</Text>
             )}
             {classes.map((cls) => (
-              <View key={cls.id} style={styles.classCard}>
-                <Text style={styles.classTitle}>{cls.subject_name}</Text>
-                <Text style={styles.classInfo}>Section: {cls.section}</Text>
+              <View key={cls.id} style={s.classCard}>
+                <Text style={s.classTitle}>{cls.subject_name}</Text>
+                <Text style={s.classInfo}>Section: {cls.section}</Text>
                 {cls.schedule ? (
-                  <Text style={styles.classInfo}>Schedule: {cls.schedule}</Text>
+                  <Text style={s.classInfo}>Schedule: {cls.schedule}</Text>
                 ) : null}
-                <View style={styles.classActions}>
+                <View style={s.classActions}>
                   <TouchableOpacity
-                    style={styles.studentsBtn}
+                    style={s.studentsBtn}
                     onPress={() => {
                       setCurrentClassId(cls.id);
                       setCurrentClassName(
@@ -602,10 +443,10 @@ export default function AttendanceScreen({ route }) {
                       loadClassOverviewData(cls.id);
                     }}
                   >
-                    <Text style={styles.studentsBtnText}>Students</Text>
+                    <Text style={s.studentsBtnText}>Students</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={styles.deleteBtn}
+                    style={s.deleteBtn}
                     onPress={() =>
                       showAlert("Delete", "Delete this class?", [
                         { text: "Cancel" },
@@ -613,7 +454,7 @@ export default function AttendanceScreen({ route }) {
                       ])
                     }
                   >
-                    <Text style={styles.deleteBtnText}>Delete</Text>
+                    <Text style={s.deleteBtnText}>Delete</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -623,35 +464,33 @@ export default function AttendanceScreen({ route }) {
 
         {activeTab === 1 && (
           <View>
-            <Text style={styles.sectionTitle}>Select Class</Text>
+            <Text style={s.sectionTitle}>Select Class</Text>
             <TouchableOpacity
-              style={styles.pickerContainer}
+              style={s.picker}
               onPress={() => setShowClassPicker(!showClassPicker)}
             >
-              <Text style={styles.pickerText}>
+              <Text style={s.pickerText}>
                 {selectedClassId
-                  ? `${classes.find((c) => c.id === selectedClassId)?.subject_name} – ${classes.find((c) => c.id === selectedClassId)?.section}`
+                  ? `${selectedClass?.subject_name} – ${selectedClass?.section}`
                   : "-- Select Class --"}
               </Text>
-              <Text style={styles.pickerArrow}>
-                {showClassPicker ? "▲" : "▼"}
-              </Text>
+              <Text style={s.pickerArrow}>{showClassPicker ? "▲" : "▼"}</Text>
             </TouchableOpacity>
             {showClassPicker && (
-              <View style={styles.pickerDropdown}>
+              <View style={s.pickerDropdown}>
                 {classes.map((cls) => (
                   <TouchableOpacity
                     key={cls.id}
-                    style={styles.pickerOption}
+                    style={s.pickerOption}
                     onPress={() => {
                       setSelectedClassId(cls.id);
                       setShowClassPicker(false);
                       setAttendanceMap({});
                     }}
                   >
-                    <Text
-                      style={styles.pickerOptionText}
-                    >{`${cls.subject_name} – ${cls.section}`}</Text>
+                    <Text style={s.pickerOptionText}>
+                      {cls.subject_name} – {cls.section}
+                    </Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -660,43 +499,42 @@ export default function AttendanceScreen({ route }) {
             {selectedClassId && (
               <>
                 <TextInput
-                  style={styles.searchInput}
+                  style={s.searchInput}
                   placeholder="Search by name or ID..."
                   value={searchQuery}
                   onChangeText={setSearchQuery}
                 />
-                {filteredStudents.length === 0 && (
-                  <Text style={styles.emptyText}>
+                {filtered.length === 0 && (
+                  <Text style={s.emptyText}>
                     No students yet. Add them in My Classes.
                   </Text>
                 )}
-                <ScrollView style={styles.studentList} nestedScrollEnabled>
-                  {filteredStudents.map((student) => (
-                    <View key={student.id} style={styles.studentRow}>
-                      <View style={styles.studentInfo}>
-                        <Text style={styles.studentName}>{student.name}</Text>
-                        <Text style={styles.studentNumber}>
+                <ScrollView style={s.studentList} nestedScrollEnabled>
+                  {filtered.map((student) => (
+                    <View key={student.id} style={s.studentRow}>
+                      <View style={s.studentInfo}>
+                        <Text style={s.studentName}>{student.name}</Text>
+                        <Text style={s.studentNumber}>
                           ID: {student.student_number}
                         </Text>
                       </View>
-                      <View style={styles.attendanceButtons}>
+                      <View style={s.attendanceBtns}>
                         {["Present", "Absent", "Late"].map((status) => {
-                          const isSelected =
-                            attendanceMap[student.id] === status;
+                          const active = attendanceMap[student.id] === status;
                           const colors = {
-                            Present: { active: "#16A34A", passive: "#E0F2E0" },
-                            Absent: { active: "#CC0000", passive: "#FEE2E2" },
-                            Late: { active: "#D97706", passive: "#FEF3C7" },
+                            Present: { on: "#16A34A", off: "#E0F2E0" },
+                            Absent: { on: "#CC0000", off: "#FEE2E2" },
+                            Late: { on: "#D97706", off: "#FEF3C7" },
                           };
                           return (
                             <TouchableOpacity
                               key={status}
                               style={[
-                                styles.statusBtn,
+                                s.statusBtn,
                                 {
-                                  backgroundColor: isSelected
-                                    ? colors[status].active
-                                    : colors[status].passive,
+                                  backgroundColor: active
+                                    ? colors[status].on
+                                    : colors[status].off,
                                 },
                               ]}
                               onPress={() =>
@@ -705,7 +543,7 @@ export default function AttendanceScreen({ route }) {
                             >
                               <Text
                                 style={{
-                                  color: isSelected ? "#FFF" : "#555",
+                                  color: active ? "#FFF" : "#555",
                                   fontWeight: "bold",
                                   fontSize: 12,
                                 }}
@@ -720,11 +558,11 @@ export default function AttendanceScreen({ route }) {
                   ))}
                 </ScrollView>
                 <TouchableOpacity
-                  style={styles.saveButton}
+                  style={s.saveButton}
                   onPress={saveAttendance}
                   disabled={loading}
                 >
-                  <Text style={styles.saveButtonText}>
+                  <Text style={s.saveButtonText}>
                     {loading ? "SAVING..." : "SAVE ATTENDANCE"}
                   </Text>
                 </TouchableOpacity>
@@ -739,122 +577,116 @@ export default function AttendanceScreen({ route }) {
         animationType="slide"
         onRequestClose={() => setShowStudentsModal(false)}
       >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <View style={styles.modalTitleRow}>
-              <Text style={styles.modalTitle}>{currentClassName}</Text>
-              <Text style={styles.classScheduleText}>
+        <View style={s.modalContainer}>
+          <View style={s.modalHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.modalTitle}>{currentClassName}</Text>
+              <Text style={s.modalSubtitle}>
                 {classes.find((c) => c.id === currentClassId)?.schedule ||
                   "No schedule set"}
               </Text>
             </View>
             <TouchableOpacity
               onPress={() => setShowStudentsModal(false)}
-              style={styles.closeButton}
+              style={s.closeBtn}
             >
-              <Text style={styles.closeButtonText}>✕</Text>
+              <Text style={s.closeBtnText}>✕</Text>
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.modalContent}>
-            <Text style={styles.classOverviewHeading}>Class Overview</Text>
-            <View style={styles.summaryContainer}>
-              <View style={styles.summaryCard}>
-                <Text style={[styles.summaryCount, { color: "#16A34A" }]}>
-                  {classSummary.present}
-                </Text>
-                <Text style={styles.summaryLabel}>Present</Text>
-              </View>
-              <View style={styles.summaryCard}>
-                <Text style={[styles.summaryCount, { color: "#CC0000" }]}>
-                  {classSummary.absent}
-                </Text>
-                <Text style={styles.summaryLabel}>Absent</Text>
-              </View>
-              <View style={styles.summaryCard}>
-                <Text style={[styles.summaryCount, { color: "#D97706" }]}>
-                  {classSummary.late}
-                </Text>
-                <Text style={styles.summaryLabel}>Late</Text>
-              </View>
-              <View style={styles.summaryCard}>
-                <Text style={[styles.summaryCount, { color: "#1D4ED8" }]}>
-                  {classSummary.rate}%
-                </Text>
-                <Text style={styles.summaryLabel}>Rate</Text>
-              </View>
+          <ScrollView style={s.modalContent}>
+            <Text style={s.classOverviewHeading}>Class Overview</Text>
+            <View style={s.summaryRow}>
+              {[
+                {
+                  label: "Present",
+                  value: classSummary.present,
+                  color: "#16A34A",
+                },
+                {
+                  label: "Absent",
+                  value: classSummary.absent,
+                  color: "#CC0000",
+                },
+                { label: "Late", value: classSummary.late, color: "#D97706" },
+                {
+                  label: "Rate",
+                  value: `${classSummary.rate}%`,
+                  color: "#1D4ED8",
+                },
+              ].map((item) => (
+                <View key={item.label} style={s.summaryCard}>
+                  <Text style={[s.summaryCount, { color: item.color }]}>
+                    {item.value}
+                  </Text>
+                  <Text style={s.summaryLabel}>{item.label}</Text>
+                </View>
+              ))}
             </View>
 
-            <Text style={styles.sectionTitle}>Add New Student</Text>
+            <Text style={s.sectionTitle}>Add New Student</Text>
             <TextInput
-              style={styles.input}
+              style={s.input}
               placeholder="Student Name"
               value={studentName}
               onChangeText={setStudentName}
             />
             <TextInput
-              style={styles.input}
+              style={s.input}
               placeholder="Student ID Number"
               value={studentNumber}
               onChangeText={setStudentNumber}
               keyboardType="numeric"
             />
-            <TouchableOpacity style={styles.addButton} onPress={addStudent}>
-              <Text style={styles.buttonText}>ADD STUDENT</Text>
+            <TouchableOpacity style={s.addButton} onPress={addStudent}>
+              <Text style={s.btnText}>ADD STUDENT</Text>
             </TouchableOpacity>
 
-            <Text style={styles.sectionTitle}>
+            <Text style={s.sectionTitle}>
               Students ({modalStudents.length})
             </Text>
             {modalStudents.length === 0 && (
-              <Text style={styles.emptyText}>No students yet.</Text>
+              <Text style={s.emptyText}>No students yet.</Text>
             )}
             {modalStudents.map((student) => {
-              const summary = studentAttendanceSummary[student.id] || {
+              const sum = studentAttendanceSummary[student.id] || {
                 present: 0,
                 absent: 0,
                 late: 0,
                 records: [],
               };
               return (
-                <View key={student.id} style={styles.studentCard}>
-                  <View style={styles.studentInfo}>
-                    <Text style={styles.studentName}>{student.name}</Text>
-                    <Text style={styles.studentId}>
+                <View key={student.id} style={s.studentCard}>
+                  <View style={s.studentInfo}>
+                    <Text style={s.studentName}>{student.name}</Text>
+                    <Text style={s.studentId}>
                       ID: {student.student_number}
                     </Text>
-                    <View style={styles.studentTotalsRow}>
-                      <Text style={[styles.studentTotal, { color: "#16A34A" }]}>
-                        P: {summary.present}
+                    <View style={s.totalsRow}>
+                      <Text style={[s.total, { color: "#16A34A" }]}>
+                        P: {sum.present}
                       </Text>
-                      <Text style={[styles.studentTotal, { color: "#CC0000" }]}>
-                        A: {summary.absent}
+                      <Text style={[s.total, { color: "#CC0000" }]}>
+                        A: {sum.absent}
                       </Text>
-                      <Text style={[styles.studentTotal, { color: "#D97706" }]}>
-                        L: {summary.late}
+                      <Text style={[s.total, { color: "#D97706" }]}>
+                        L: {sum.late}
                       </Text>
                     </View>
-                    {summary.records.length > 0 ? (
-                      <Text style={styles.attendanceHistory}>
-                        {summary.records
-                          .slice(0, 3)
-                          .map(
-                            (rec, idx) =>
-                              `${rec.date} ${rec.status}${
-                                idx < Math.min(summary.records.length, 3) - 1
-                                  ? " · "
-                                  : ""
-                              }`,
-                          )}
-                      </Text>
-                    ) : (
-                      <Text style={styles.attendanceHistory}>
-                        No attendance records yet.
-                      </Text>
-                    )}
+                    <Text style={s.history}>
+                      {sum.records.length > 0
+                        ? sum.records
+                            .slice(0, 3)
+                            .map(
+                              (r, i) =>
+                                `${r.date} ${r.status}${i < Math.min(sum.records.length, 3) - 1 ? " · " : ""}`,
+                            )
+                            .join("")
+                        : "No attendance records yet."}
+                    </Text>
                   </View>
                   <TouchableOpacity
-                    style={styles.deleteStudentBtn}
+                    style={s.removeBtn}
                     onPress={() =>
                       showAlert("Delete", "Remove this student?", [
                         { text: "Cancel" },
@@ -865,7 +697,7 @@ export default function AttendanceScreen({ route }) {
                       ])
                     }
                   >
-                    <Text style={styles.deleteStudentBtnText}>Remove</Text>
+                    <Text style={s.removeBtnText}>Remove</Text>
                   </TouchableOpacity>
                 </View>
               );
@@ -879,13 +711,9 @@ export default function AttendanceScreen({ route }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FFFFFF" },
-  centerContent: {
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 24,
-  },
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: "#FFF" },
+  center: { justifyContent: "center", alignItems: "center", padding: 24 },
   header: {
     backgroundColor: "#CC0000",
     paddingTop: 48,
@@ -893,32 +721,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   headerTitle: { color: "#FFF", fontSize: 18, fontWeight: "bold" },
-  tabContainer: {
-    flexDirection: "row",
-    backgroundColor: "#F5F5F5",
-    padding: 8,
-  },
+  tabRow: { flexDirection: "row", backgroundColor: "#F5F5F5", padding: 8 },
   tab: {
     flex: 1,
     padding: 12,
     alignItems: "center",
     marginHorizontal: 4,
     borderRadius: 10,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFF",
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
   },
-  activeTab: {
-    backgroundColor: "#CC0000",
-    borderColor: "#CC0000",
-  },
+  activeTab: { backgroundColor: "#CC0000", borderColor: "#CC0000" },
   tabText: { color: "#CC0000", fontWeight: "bold", fontSize: 12 },
-  activeTabText: { color: "#FFFFFF" },
+  activeTabText: { color: "#FFF" },
   content: { flex: 1, padding: 16 },
   sectionTitle: {
     fontSize: 16,
@@ -939,7 +755,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginVertical: 12,
   },
-  buttonText: { color: "#FFF", fontWeight: "bold" },
+  btnText: { color: "#FFF", fontWeight: "bold" },
   emptyText: { textAlign: "center", color: "#777", marginVertical: 16 },
   classCard: {
     backgroundColor: "#F5F5F5",
@@ -966,7 +782,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   deleteBtnText: { color: "#FFF", textAlign: "center" },
-  pickerContainer: {
+  picker: {
     backgroundColor: "#F5F5F5",
     borderRadius: 8,
     marginBottom: 8,
@@ -1005,9 +821,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#EEE",
   },
+  studentInfo: { flex: 1, marginRight: 12 },
   studentName: { fontSize: 15, fontWeight: "600" },
   studentNumber: { fontSize: 13, color: "#666" },
-  attendanceButtons: { flexDirection: "row", gap: 6 },
+  attendanceBtns: { flexDirection: "row", gap: 6 },
   statusBtn: {
     width: 40,
     height: 40,
@@ -1033,9 +850,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#CC0000",
   },
   modalTitle: { fontSize: 18, fontWeight: "bold", color: "#FFF" },
-  modalTitleRow: { flex: 1 },
-  classScheduleText: { color: "#FFF", fontSize: 12, marginTop: 4 },
-  closeButton: {
+  modalSubtitle: { color: "#FFF", fontSize: 12, marginTop: 4 },
+  closeBtn: {
     padding: 8,
     backgroundColor: "rgba(255,255,255,0.2)",
     borderRadius: 20,
@@ -1044,7 +860,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  closeButtonText: { fontSize: 18, color: "#FFF" },
+  closeBtnText: { fontSize: 18, color: "#FFF" },
   modalContent: { flex: 1, padding: 16 },
   classOverviewHeading: {
     fontSize: 18,
@@ -1052,7 +868,7 @@ const styles = StyleSheet.create({
     color: "#CC0000",
     marginBottom: 12,
   },
-  summaryContainer: {
+  summaryRow: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
@@ -1077,17 +893,15 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "flex-start",
   },
-  studentInfo: { flex: 1, marginRight: 12 },
-  studentTotalsRow: { flexDirection: "row", marginTop: 8, flexWrap: "wrap" },
-  studentTotal: { fontSize: 13, fontWeight: "bold", marginRight: 16 },
-  attendanceHistory: { marginTop: 8, fontSize: 12, color: "#555" },
   studentId: { fontSize: 14, color: "#666", marginTop: 4 },
-  deleteStudentBtn: {
+  totalsRow: { flexDirection: "row", marginTop: 8, flexWrap: "wrap" },
+  total: { fontSize: 13, fontWeight: "bold", marginRight: 16 },
+  history: { marginTop: 8, fontSize: 12, color: "#555" },
+  removeBtn: {
     backgroundColor: "#CC0000",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 6,
   },
-  deleteStudentBtnText: { color: "#FFF", fontSize: 12 },
-  comingSoon: { textAlign: "center", color: "#777", marginTop: 8 },
+  removeBtnText: { color: "#FFF", fontSize: 12 },
 });
