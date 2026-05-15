@@ -1,4 +1,3 @@
-// src/screens/LoginScreen.jsx
 import { Alert as RNAlert } from "react-native";
 import React, { useState } from "react";
 import {
@@ -15,7 +14,6 @@ import { auth } from "../FireBase/FireBaseConfig";
 
 const isWeb = typeof document !== "undefined";
 
-// ─── Web-compatible Alert ────────────────────────────────────────────────────
 function useWebAlert() {
   const [alertConfig, setAlertConfig] = React.useState(null);
 
@@ -143,7 +141,6 @@ const alertStyles = StyleSheet.create({
   btnText: { color: "#FFF", fontWeight: "700", fontSize: 14 },
   btnTextCancel: { color: "#333" },
 });
-// ─────────────────────────────────────────────────────────────────────────────
 
 export default function LoginScreen({ navigation }) {
   const { showAlert, AlertModal } = useWebAlert();

@@ -1,4 +1,3 @@
-// src/navigation/AppNavigator.jsx
 import React, { useEffect, useState } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { onAuthStateChanged } from "firebase/auth";
@@ -12,7 +11,9 @@ import HomeScreen from "../screens/HomeScreen";
 const Stack = createNativeStackNavigator();
 
 let isRegistering = false;
-export const setIsRegistering = (val) => { isRegistering = val; };
+export const setIsRegistering = (val) => {
+  isRegistering = val;
+};
 
 export default function AppNavigator() {
   const [authStatus, setAuthStatus] = useState("loading");

@@ -1,4 +1,3 @@
-// src/screens/ProfileScreen.jsx
 import { Alert as RNAlert } from "react-native";
 import React, { useState, useEffect } from "react";
 import {
@@ -41,7 +40,6 @@ if (!isWeb) {
   ImagePicker = require("expo-image-picker");
 }
 
-// ─── Web-compatible Alert (works on both Expo Go and Web) ───────────────────
 function useWebAlert() {
   const [alertConfig, setAlertConfig] = React.useState(null);
 
@@ -169,7 +167,6 @@ const alertStyles = StyleSheet.create({
   btnText: { color: "#FFF", fontWeight: "700", fontSize: 14 },
   btnTextCancel: { color: "#333" },
 });
-// ─────────────────────────────────────────────────────────────────────────────
 
 export default function ProfileScreen({ onSignOut }) {
   const { showAlert, AlertModal } = useWebAlert();

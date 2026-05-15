@@ -1,4 +1,3 @@
-// src/screens/ReportsScreen.jsx
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -103,7 +102,6 @@ export default function ReportsScreen() {
       return;
     }
 
-    // Fetch all students from all classes instead of using __name__
     let studentDocs = [];
     for (let i = 0; i < classes.length; i += 10) {
       const classChunk = classes.slice(i, i + 10);
@@ -117,7 +115,6 @@ export default function ReportsScreen() {
       ];
     }
 
-    // Filter locally to get only flagged students
     const flagged = studentDocs
       .filter((s) => flaggedIds.includes(s.id))
       .map((s) => ({
@@ -209,7 +206,6 @@ export default function ReportsScreen() {
       </View>
 
       <ScrollView style={styles.content}>
-        {/* Overall Stats */}
         <Text style={styles.sectionTitle}>Overall Attendance Rate</Text>
         {overallStats.total === 0 ? (
           <Text style={styles.noData}>No attendance records yet.</Text>
@@ -262,7 +258,6 @@ export default function ReportsScreen() {
           </>
         )}
 
-        {/* Flagged Students */}
         <Text style={styles.sectionTitle}>
           Flagged Students (≥{ABSENT_FLAG_THRESHOLD} Absences)
         </Text>
@@ -284,7 +279,6 @@ export default function ReportsScreen() {
           ))
         )}
 
-        {/* Per-Class Report */}
         <Text style={styles.sectionTitle}>Reports by Class</Text>
         <TouchableOpacity
           style={styles.pickerContainer}

@@ -1,4 +1,3 @@
-// src/screens/HomeContent.jsx
 import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
@@ -75,7 +74,7 @@ export default function HomeContent({ navigation }) {
       },
     );
 
-    return unsubscribe; // Cleanup on unmount
+    return unsubscribe;
   }, []);
 
   useFocusEffect(

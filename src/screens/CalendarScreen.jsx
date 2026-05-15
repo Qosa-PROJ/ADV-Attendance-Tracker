@@ -1,5 +1,4 @@
-﻿// src/screens/CalendarScreen.jsx
-import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -62,9 +61,6 @@ export default function CalendarScreen() {
     try {
       const startDate = `${year}-${pad(month + 1)}-01`;
       const endDate = `${year}-${pad(month + 1)}-${pad(daysInMonth)}`;
-      console.log(
-        `Loading attendance for ${startDate} to ${endDate}, classId: ${selectedClassId}`,
-      );
       const q = query(
         collection(db, "attendance"),
         where("classId", "==", selectedClassId),
@@ -73,12 +69,10 @@ export default function CalendarScreen() {
       );
       const snap = await getDocs(q);
       const map = {};
-      console.log(`Found ${snap.docs.length} attendance records`);
       snap.docs.forEach((docItem) => {
         const rec = docItem.data();
         const key = `${rec.studentId}|${rec.date}`;
         map[key] = rec.status;
-        console.log(`Added: ${key} = ${rec.status}`);
       });
       setAttendanceMap(map);
     } catch (error) {
@@ -96,7 +90,6 @@ export default function CalendarScreen() {
 
   useFocusEffect(
     React.useCallback(() => {
-      console.log("Calendar focused - reloading classes and attendance");
       loadClasses();
       loadAttendanceData();
       return () => {};
@@ -141,9 +134,6 @@ export default function CalendarScreen() {
       );
       const snap = await getDocs(q);
       const studentList = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      console.log(
-        `Loaded ${studentList.length} students for class ${selectedClassId}`,
-      );
       setStudents(studentList);
     } catch (error) {
       console.error("Failed to load students", error);

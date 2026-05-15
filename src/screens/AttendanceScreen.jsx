@@ -1,4 +1,3 @@
-// src/screens/AttendanceScreen.jsx
 import { Alert as RNAlert } from "react-native";
 import React, { useState, useEffect } from "react";
 import {
@@ -25,7 +24,6 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 
-// ─── Web-compatible Alert (works on both Expo Go and Web) ───────────────────
 const isWeb = typeof document !== "undefined";
 
 function useWebAlert() {
@@ -155,7 +153,6 @@ const alertStyles = StyleSheet.create({
   btnText: { color: "#FFF", fontWeight: "700", fontSize: 14 },
   btnTextCancel: { color: "#333" },
 });
-// ─────────────────────────────────────────────────────────────────────────────
 
 export default function AttendanceScreen({ route }) {
   const { showAlert, AlertModal } = useWebAlert();
@@ -737,7 +734,6 @@ export default function AttendanceScreen({ route }) {
         )}
       </ScrollView>
 
-      {/* STUDENTS MODAL */}
       <Modal
         visible={showStudentsModal}
         animationType="slide"
