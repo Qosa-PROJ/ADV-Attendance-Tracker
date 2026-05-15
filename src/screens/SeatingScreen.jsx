@@ -759,7 +759,7 @@ export default function SeatingScreen() {
                                 </Text>
                               </>
                             ) : (
-                              <Text style={styles.seatPlus}>+</Text>
+                              <Text style={styles.seatPlus}>EMPTY</Text>
                             )}
                           </TouchableOpacity>
                         );
@@ -807,7 +807,7 @@ export default function SeatingScreen() {
                                 </Text>
                               </>
                             ) : (
-                              <Text style={styles.seatPlus}>+</Text>
+                              <Text style={styles.seatPlus}>EMPTY</Text>
                             )}
                           </TouchableOpacity>
                         );
@@ -1154,7 +1154,7 @@ const styles = StyleSheet.create({
   legendDot: { width: 12, height: 12, borderRadius: 6 },
   legendText: { fontSize: 12, color: "#555" },
   teacherDesk: {
-    width: "95%",
+    width: "60%",
     alignSelf: "center",
     minHeight: 58,
     backgroundColor: "#1A3A8F",
@@ -1311,7 +1311,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 2,
   },
-  seatPlus: { color: "#9CA3AF", fontSize: 22, fontWeight: "300" },
+  seatPlus: { color: "#9CA3AF", fontSize: 14, fontWeight: "300" },
   unseatedList: {
     flexDirection: "row",
     flexWrap: "wrap",
