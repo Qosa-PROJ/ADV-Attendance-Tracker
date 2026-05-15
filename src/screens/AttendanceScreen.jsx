@@ -49,12 +49,26 @@ function useWebAlert() {
   };
 
   const AlertModal = alertConfig ? (
-    <Modal transparent visible animationType="fade" onRequestClose={() => setAlertConfig(null)}>
+    <Modal
+      transparent
+      visible
+      animationType="fade"
+      onRequestClose={() => setAlertConfig(null)}
+    >
       <View style={alertStyles.overlay}>
         <View style={alertStyles.dialog}>
-          {alertConfig.title ? <Text style={alertStyles.title}>{alertConfig.title}</Text> : null}
-          {alertConfig.message ? <Text style={alertStyles.message}>{alertConfig.message}</Text> : null}
-          <View style={[alertStyles.buttonRow, alertConfig.buttons.length > 2 && alertStyles.buttonColumn]}>
+          {alertConfig.title ? (
+            <Text style={alertStyles.title}>{alertConfig.title}</Text>
+          ) : null}
+          {alertConfig.message ? (
+            <Text style={alertStyles.message}>{alertConfig.message}</Text>
+          ) : null}
+          <View
+            style={[
+              alertStyles.buttonRow,
+              alertConfig.buttons.length > 2 && alertStyles.buttonColumn,
+            ]}
+          >
             {alertConfig.buttons.map((btn, idx) => {
               const isDestructive = btn.style === "destructive";
               const isCancel = btn.style === "cancel";
@@ -70,7 +84,12 @@ function useWebAlert() {
                   ]}
                   onPress={() => handlePress(btn)}
                 >
-                  <Text style={[alertStyles.btnText, isCancel && alertStyles.btnTextCancel]}>
+                  <Text
+                    style={[
+                      alertStyles.btnText,
+                      isCancel && alertStyles.btnTextCancel,
+                    ]}
+                  >
                     {btn.text}
                   </Text>
                 </TouchableOpacity>
@@ -174,7 +193,8 @@ export default function AttendanceScreen({ route }) {
   const [studentAttendanceSummary, setStudentAttendanceSummary] = useState({});
 
   const [loading, setLoading] = useState(false);
-  const [firestorePermissionError, setFirestorePermissionError] = useState(false);
+  const [firestorePermissionError, setFirestorePermissionError] =
+    useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -198,7 +218,9 @@ export default function AttendanceScreen({ route }) {
         query(collection(db, "attendance"), where("classId", "==", classId)),
       );
 
-      let p = 0, a = 0, l = 0;
+      let p = 0,
+        a = 0,
+        l = 0;
       const summary = {};
 
       snap.docs.forEach((d) => {
@@ -210,9 +232,16 @@ export default function AttendanceScreen({ route }) {
           summary[sid] = { present: 0, absent: 0, late: 0, records: [] };
         }
 
-        if (status === "present") { p++; summary[sid].present++; }
-        else if (status === "absent") { a++; summary[sid].absent++; }
-        else if (status === "late") { l++; summary[sid].late++; }
+        if (status === "present") {
+          p++;
+          summary[sid].present++;
+        } else if (status === "absent") {
+          a++;
+          summary[sid].absent++;
+        } else if (status === "late") {
+          l++;
+          summary[sid].late++;
+        }
 
         summary[sid].records.push({ date: record.date, status: record.status });
       });
@@ -856,7 +885,11 @@ export default function AttendanceScreen({ route }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FFFFFF" },
-  centerContent: { justifyContent: "center", alignItems: "center", padding: 24 },
+  centerContent: {
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
   header: {
     backgroundColor: "#CC0000",
     paddingTop: 48,
@@ -874,9 +907,20 @@ const styles = StyleSheet.create({
     padding: 12,
     alignItems: "center",
     marginHorizontal: 4,
-    borderRadius: 8,
+    borderRadius: 10,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    shadowColor: "#000",
+    shadowOpacity: 0.08,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 2,
   },
-  activeTab: { backgroundColor: "#CC0000" },
+  activeTab: {
+    backgroundColor: "#CC0000",
+    borderColor: "#CC0000",
+  },
   tabText: { color: "#CC0000", fontWeight: "bold", fontSize: 12 },
   activeTabText: { color: "#FFFFFF" },
   content: { flex: 1, padding: 16 },
