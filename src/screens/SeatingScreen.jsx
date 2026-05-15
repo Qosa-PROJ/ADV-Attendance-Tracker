@@ -1,23 +1,25 @@
 // src/screens/SeatingScreen.jsx
-import React, { useState, useEffect } from "react";
+import { Alert as RNAlert } from "react-native";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   Modal,
   TextInput,
+  Platform,
 } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   collection,
   query,
   where,
   getDocs,
   doc,
-  setDoc,
+  updateDoc,
   getDoc,
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
@@ -25,115 +27,295 @@ import { db, auth } from "../FireBase/FireBaseConfig";
 
 const COLS = 5;
 
+// ─── Web-compatible Alert (works on both Expo Go and Web) ───────────────────
+const isWeb = typeof document !== "undefined";
+
+function useWebAlert() {
+  const [alertConfig, setAlertConfig] = React.useState(null);
+
+  const showAlert = React.useCallback((title, message, buttons) => {
+    if (!isWeb) {
+      RNAlert.alert(title, message, buttons);
+      return;
+    }
+    const resolvedButtons =
+      buttons && buttons.length > 0
+        ? buttons
+        : [{ text: "OK", style: "default" }];
+    setAlertConfig({ title, message, buttons: resolvedButtons });
+  }, []);
+
+  const handlePress = (btn) => {
+    setAlertConfig(null);
+    if (btn.onPress) btn.onPress();
+  };
+
+  const AlertModal = alertConfig ? (
+    <Modal
+      transparent
+      visible
+      animationType="fade"
+      onRequestClose={() => setAlertConfig(null)}
+    >
+      <View style={alertStyles.overlay}>
+        <View style={alertStyles.dialog}>
+          {alertConfig.title ? (
+            <Text style={alertStyles.title}>{alertConfig.title}</Text>
+          ) : null}
+          {alertConfig.message ? (
+            <Text style={alertStyles.message}>{alertConfig.message}</Text>
+          ) : null}
+          <View
+            style={[
+              alertStyles.buttonRow,
+              alertConfig.buttons.length > 2 && alertStyles.buttonColumn,
+            ]}
+          >
+            {alertConfig.buttons.map((btn, idx) => {
+              const isDestructive = btn.style === "destructive";
+              const isCancel = btn.style === "cancel";
+              return (
+                <TouchableOpacity
+                  key={idx}
+                  style={[
+                    alertStyles.btn,
+                    isDestructive && alertStyles.btnDestructive,
+                    isCancel && alertStyles.btnCancel,
+                    alertConfig.buttons.length === 1 && alertStyles.btnSingle,
+                    alertConfig.buttons.length > 2 && alertStyles.btnFull,
+                  ]}
+                  onPress={() => handlePress(btn)}
+                >
+                  <Text
+                    style={[
+                      alertStyles.btnText,
+                      isCancel && alertStyles.btnTextCancel,
+                    ]}
+                  >
+                    {btn.text}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  ) : null;
+
+  return { showAlert, AlertModal };
+}
+
+const alertStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 32,
+  },
+  dialog: {
+    backgroundColor: "#FFF",
+    borderRadius: 16,
+    padding: 24,
+    width: "100%",
+    maxWidth: 340,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.2,
+    shadowRadius: 32,
+    elevation: 12,
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#111",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  message: {
+    fontSize: 14,
+    color: "#444",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  buttonRow: { flexDirection: "row", gap: 10, justifyContent: "center" },
+  buttonColumn: { flexDirection: "column", gap: 8 },
+  btn: {
+    flex: 1,
+    backgroundColor: "#CC0000",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 9,
+    alignItems: "center",
+  },
+  btnSingle: { flex: 0, paddingHorizontal: 48 },
+  btnFull: { flex: 0, width: "100%" },
+  btnDestructive: { backgroundColor: "#8B0000" },
+  btnCancel: { backgroundColor: "#F0F0F0" },
+  btnText: { color: "#FFF", fontWeight: "700", fontSize: 14 },
+  btnTextCancel: { color: "#333" },
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function SeatingScreen() {
+  const { showAlert, AlertModal } = useWebAlert();
+
   const [currentUser, setCurrentUser] = useState(null);
   const [classes, setClasses] = useState([]);
   const [selectedClassId, setSelectedClassId] = useState(null);
   const [showPicker, setShowPicker] = useState(false);
   const [students, setStudents] = useState([]);
   const [seatMap, setSeatMap] = useState({});
+  const [rowsCount, setRowsCount] = useState(4);
+  const [colsCount, setColsCount] = useState(COLS);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [assignModal, setAssignModal] = useState(false);
   const [selectedSeat, setSelectedSeat] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
 
+  const selectedClassIdRef = useRef(selectedClassId);
+  useEffect(() => {
+    selectedClassIdRef.current = selectedClassId;
+  }, [selectedClassId]);
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
-      if (user) loadClasses();
+      if (user) loadClasses(user);
     });
     return unsubscribe;
   }, []);
 
+  useFocusEffect(
+    React.useCallback(() => {
+      if (currentUser) {
+        loadClasses(currentUser);
+      }
+      const classId = selectedClassIdRef.current;
+      if (!classId) return;
+      let cancelled = false;
+      loadClassData(classId, () => cancelled);
+      return () => {
+        cancelled = true;
+      };
+    }, [currentUser]),
+  );
+
   useEffect(() => {
-    if (selectedClassId) loadClassData(selectedClassId);
+    if (!selectedClassId) return;
+    let cancelled = false;
+
+    setStudents([]);
+    setSeatMap({});
+    setRowsCount(4);
+    setColsCount(COLS);
+
+    loadClassData(selectedClassId, () => cancelled);
+
+    return () => {
+      cancelled = true;
+    };
   }, [selectedClassId]);
 
-  const loadClasses = async () => {
+  const loadClasses = async (user) => {
     try {
-      const user = currentUser || auth.currentUser;
-      if (!user) {
-        console.log("No user logged in");
-        return;
-      }
+      const u = user || currentUser || auth.currentUser;
+      if (!u) return;
       const snap = await getDocs(
-        query(collection(db, "classes"), where("teacherId", "==", user.uid)),
+        query(collection(db, "classes"), where("teacherId", "==", u.uid)),
       );
-      setClasses(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setClasses(list);
+      if (!selectedClassIdRef.current && list.length > 0) {
+        setSelectedClassId(list[0].id);
+      }
     } catch (e) {
       console.error("Error loading classes:", e);
-      Alert.alert("Error", "Failed to load classes");
+      showAlert("Error", "Failed to load classes");
     }
   };
 
-  const loadClassData = async (classId) => {
+  const loadClassData = async (classId, isCancelled = () => false) => {
     setLoading(true);
     try {
-      console.log("Loading students for class:", classId);
       const studentSnap = await getDocs(
         query(collection(db, "students"), where("classId", "==", classId)),
       );
-      setStudents(studentSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      console.log("Loaded students:", studentSnap.docs.length);
+      if (isCancelled()) return;
 
-      console.log("Loading class doc for seating data:", classId);
+      const loadedStudents = studentSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }));
+      setStudents(loadedStudents);
+
       const classDoc = await getDoc(doc(db, "classes", classId));
+      if (isCancelled()) return;
+
       if (classDoc.exists()) {
-        setSeatMap(classDoc.data().seatMap || {});
-        console.log("Seating data loaded from class doc");
+        const data = classDoc.data();
+        setSeatMap(data.seatMap || {});
+        setRowsCount(data.rowsCount ?? 4);
+        setColsCount(data.colsCount ?? COLS);
       } else {
         setSeatMap({});
-        console.log("No class document found for seating data");
+        setRowsCount(4);
+        setColsCount(COLS);
       }
     } catch (e) {
+      if (isCancelled()) return;
       console.error("Error loading class data:", e);
-      Alert.alert("Error", "Failed to load class data: " + e.message);
+      showAlert("Error", "Failed to load class data: " + e.message);
     }
-    setLoading(false);
+    if (!isCancelled()) setLoading(false);
+  };
+
+  const confirmAction = (title, message, onConfirm) => {
+    showAlert(title, message, [
+      { text: "Cancel", style: "cancel" },
+      { text: "OK", onPress: onConfirm },
+    ]);
   };
 
   const saveSeating = async () => {
     if (!selectedClassId) return;
     const user = currentUser || auth.currentUser;
     if (!user) {
-      Alert.alert("Error", "You must be logged in to save seating.");
+      showAlert("Error", "You must be logged in to save seating.");
       return;
     }
-
     setSaving(true);
     try {
-      await setDoc(
-        doc(db, "classes", selectedClassId),
-        {
-          seatMap,
-          updatedAt: new Date().toISOString(),
-        },
-        { merge: true },
-      );
-      Alert.alert("Saved", "Seating arrangement saved!");
+      await updateDoc(doc(db, "classes", selectedClassId), {
+        seatMap,
+        rowsCount,
+        colsCount,
+        updatedAt: new Date().toISOString(),
+      });
+      showAlert("Saved", "Seating arrangement saved!");
     } catch (e) {
       console.error("Error saving seating:", e);
-      Alert.alert("Error", "Failed to save seating: " + e.message);
+      showAlert("Error", "Failed to save seating: " + e.message);
     }
     setSaving(false);
   };
 
   const autoArrange = () => {
-    Alert.alert("Auto Arrange", "Randomly assign all students to seats?", [
-      { text: "Cancel" },
-      {
-        text: "Arrange",
-        onPress: () => {
-          const shuffled = [...students].sort(() => Math.random() - 0.5);
-          const newMap = {};
-          shuffled.forEach((student, i) => {
-            newMap[`${Math.floor(i / COLS)}-${i % COLS}`] = student.id;
-          });
-          setSeatMap(newMap);
-        },
+    confirmAction(
+      "Auto Arrange",
+      "Randomly assign all students to seats?",
+      () => {
+        const shuffled = [...students].sort(() => Math.random() - 0.5);
+        const newMap = {};
+        shuffled.forEach((student, i) => {
+          newMap[`${Math.floor(i / colsCount)}-${i % colsCount}`] = student.id;
+        });
+        setSeatMap(newMap);
       },
-    ]);
+    );
   };
 
   const handleSeatPress = (row, col) => {
@@ -161,6 +343,45 @@ export default function SeatingScreen() {
 
   const getStudentName = (id) =>
     students.find((s) => s.id === id)?.name || null;
+
+  const addRow = () => setRowsCount((prev) => Math.min(prev + 1, 12));
+
+  const removeRow = () => {
+    setRowsCount((prev) => {
+      const next = Math.max(1, prev - 1);
+      if (next !== prev) {
+        setSeatMap((prevMap) => {
+          const cleaned = { ...prevMap };
+          Object.keys(cleaned).forEach((key) => {
+            const [row] = key.split("-").map(Number);
+            if (row >= next) delete cleaned[key];
+          });
+          return cleaned;
+        });
+      }
+      return next;
+    });
+  };
+
+  const addColumn = () => setColsCount((prev) => Math.min(prev + 1, 12));
+
+  const removeColumn = () => {
+    setColsCount((prev) => {
+      const next = Math.max(1, prev - 1);
+      if (next !== prev) {
+        setSeatMap((prevMap) => {
+          const cleaned = { ...prevMap };
+          Object.keys(cleaned).forEach((key) => {
+            const [, col] = key.split("-").map(Number);
+            if (col >= next) delete cleaned[key];
+          });
+          return cleaned;
+        });
+      }
+      return next;
+    });
+  };
+
   const getInitials = (name) =>
     name
       ? name
@@ -171,9 +392,6 @@ export default function SeatingScreen() {
           .slice(0, 2)
       : "";
 
-  const rows = selectedClassId
-    ? Math.max(4, Math.ceil(students.length / COLS) + 1)
-    : 4;
   const seatedIds = new Set(Object.values(seatMap));
   const unseatedStudents = students.filter((s) => !seatedIds.has(s.id));
   const filteredStudents = students.filter(
@@ -207,6 +425,7 @@ export default function SeatingScreen() {
           </Text>
           <Text style={styles.pickerArrow}>{showPicker ? "▲" : "▼"}</Text>
         </TouchableOpacity>
+
         {showPicker && (
           <View style={styles.pickerDropdown}>
             {classes.map((cls) => (
@@ -239,16 +458,51 @@ export default function SeatingScreen() {
               <TouchableOpacity
                 style={[styles.actionBtn, styles.actionBtnOutline]}
                 onPress={() =>
-                  Alert.alert("Clear", "Clear all seats?", [
-                    { text: "Cancel" },
-                    { text: "Clear", onPress: () => setSeatMap({}) },
-                  ])
+                  confirmAction("Clear", "Clear all seats?", () =>
+                    setSeatMap({}),
+                  )
                 }
               >
                 <Text style={[styles.actionBtnText, { color: "#CC0000" }]}>
                   Clear All
                 </Text>
               </TouchableOpacity>
+            </View>
+
+            <View style={styles.layoutControls}>
+              <View style={styles.layoutGroup}>
+                <Text style={styles.sectionTitle}>Seat Layout</Text>
+                <Text style={styles.layoutInfo}>
+                  {rowsCount} rows × {colsCount} columns
+                </Text>
+                <View style={styles.layoutButtonRow}>
+                  <TouchableOpacity style={styles.layoutBtn} onPress={addRow}>
+                    <Text style={styles.layoutBtnText}>Add Row</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.layoutBtnOutline}
+                    onPress={removeRow}
+                  >
+                    <Text style={styles.layoutBtnOutlineText}>Remove Row</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.layoutButtonRow}>
+                  <TouchableOpacity
+                    style={styles.layoutBtn}
+                    onPress={addColumn}
+                  >
+                    <Text style={styles.layoutBtnText}>Add Column</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.layoutBtnOutline}
+                    onPress={removeColumn}
+                  >
+                    <Text style={styles.layoutBtnOutlineText}>
+                      Remove Column
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             </View>
 
             <View style={styles.legend}>
@@ -270,48 +524,55 @@ export default function SeatingScreen() {
               <Text style={styles.teacherText}>TEACHER'S DESK</Text>
             </View>
 
-            <View style={styles.grid}>
-              {Array.from({ length: rows }).map((_, row) => (
-                <View key={row} style={styles.gridRow}>
-                  {Array.from({ length: COLS }).map((_, col) => {
-                    const name = getStudentName(seatMap[`${row}-${col}`]);
-                    return (
-                      <TouchableOpacity
-                        key={col}
-                        style={[
-                          styles.seat,
-                          name ? styles.seatOccupied : styles.seatEmpty,
-                        ]}
-                        onPress={() => handleSeatPress(row, col)}
-                        onLongPress={() => {
-                          if (name)
-                            Alert.alert("Remove", `Remove ${name}?`, [
-                              { text: "Cancel" },
-                              {
-                                text: "Remove",
-                                onPress: () => removeSeat(row, col),
-                              },
-                            ]);
-                        }}
-                      >
-                        {name ? (
-                          <>
-                            <Text style={styles.seatInitials}>
-                              {getInitials(name)}
-                            </Text>
-                            <Text style={styles.seatName} numberOfLines={2}>
-                              {name.split(" ")[0]}
-                            </Text>
-                          </>
-                        ) : (
-                          <Text style={styles.seatPlus}>+</Text>
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              ))}
-            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator
+              style={styles.gridScrollContainer}
+              contentContainerStyle={styles.gridScrollContent}
+            >
+              <View style={[styles.grid, { width: colsCount * 64 + 32 }]}>
+                {Array.from({ length: rowsCount }).map((_, row) => (
+                  <View key={row} style={styles.gridRow}>
+                    {Array.from({ length: colsCount }).map((_, col) => {
+                      const name = getStudentName(seatMap[`${row}-${col}`]);
+                      return (
+                        <TouchableOpacity
+                          key={col}
+                          style={[
+                            styles.seat,
+                            name ? styles.seatOccupied : styles.seatEmpty,
+                          ]}
+                          onPress={() => handleSeatPress(row, col)}
+                          onLongPress={() => {
+                            if (name)
+                              showAlert("Remove", `Remove ${name}?`, [
+                                { text: "Cancel" },
+                                {
+                                  text: "Remove",
+                                  onPress: () => removeSeat(row, col),
+                                },
+                              ]);
+                          }}
+                        >
+                          {name ? (
+                            <>
+                              <Text style={styles.seatInitials}>
+                                {getInitials(name)}
+                              </Text>
+                              <Text style={styles.seatName} numberOfLines={2}>
+                                {name.split(" ")[0]}
+                              </Text>
+                            </>
+                          ) : (
+                            <Text style={styles.seatPlus}>+</Text>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
 
             {unseatedStudents.length > 0 && (
               <>
@@ -341,7 +602,6 @@ export default function SeatingScreen() {
         )}
       </ScrollView>
 
-      {/* Assign Modal */}
       <Modal
         visible={assignModal}
         animationType="slide"
@@ -414,6 +674,8 @@ export default function SeatingScreen() {
           </View>
         </View>
       </Modal>
+
+      {AlertModal}
     </View>
   );
 }
@@ -488,7 +750,14 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   teacherText: { color: "#FFF", fontWeight: "bold", fontSize: 15 },
-  grid: { alignItems: "center", marginBottom: 16 },
+  gridScrollContainer: {
+    marginBottom: 16,
+  },
+  gridScrollContent: {
+    alignItems: "center",
+    paddingHorizontal: 16,
+  },
+  grid: { alignItems: "center" },
   gridRow: { flexDirection: "row", marginBottom: 8 },
   seat: {
     width: 58,
@@ -529,6 +798,33 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
   },
   unseatedName: { color: "#CC0000", fontSize: 13 },
+  layoutControls: { marginBottom: 16 },
+  layoutGroup: {
+    backgroundColor: "#F5F5F5",
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 16,
+  },
+  layoutInfo: { fontSize: 13, color: "#555", marginBottom: 12 },
+  layoutButtonRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
+  layoutBtn: {
+    flex: 1,
+    backgroundColor: "#1A3A8F",
+    padding: 12,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  layoutBtnText: { color: "#FFF", fontWeight: "bold" },
+  layoutBtnOutline: {
+    flex: 1,
+    backgroundColor: "#FFF",
+    borderWidth: 2,
+    borderColor: "#CC0000",
+    padding: 12,
+    borderRadius: 8,
+    alignItems: "center",
+  },
+  layoutBtnOutlineText: { color: "#CC0000", fontWeight: "bold" },
   saveButton: {
     backgroundColor: "#CC0000",
     padding: 16,

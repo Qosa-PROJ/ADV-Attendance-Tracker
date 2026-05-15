@@ -1,4 +1,5 @@
 // src/screens/AttendanceScreen.jsx
+import { Alert as RNAlert } from "react-native";
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -7,7 +8,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   TextInput,
-  Alert,
   Modal,
 } from "react-native";
 
@@ -25,8 +25,125 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 
+// ─── Web-compatible Alert (works on both Expo Go and Web) ───────────────────
+const isWeb = typeof document !== "undefined";
+
+function useWebAlert() {
+  const [alertConfig, setAlertConfig] = React.useState(null);
+
+  const showAlert = React.useCallback((title, message, buttons) => {
+    if (!isWeb) {
+      RNAlert.alert(title, message, buttons);
+      return;
+    }
+    const resolvedButtons =
+      buttons && buttons.length > 0
+        ? buttons
+        : [{ text: "OK", style: "default" }];
+    setAlertConfig({ title, message, buttons: resolvedButtons });
+  }, []);
+
+  const handlePress = (btn) => {
+    setAlertConfig(null);
+    if (btn.onPress) btn.onPress();
+  };
+
+  const AlertModal = alertConfig ? (
+    <Modal transparent visible animationType="fade" onRequestClose={() => setAlertConfig(null)}>
+      <View style={alertStyles.overlay}>
+        <View style={alertStyles.dialog}>
+          {alertConfig.title ? <Text style={alertStyles.title}>{alertConfig.title}</Text> : null}
+          {alertConfig.message ? <Text style={alertStyles.message}>{alertConfig.message}</Text> : null}
+          <View style={[alertStyles.buttonRow, alertConfig.buttons.length > 2 && alertStyles.buttonColumn]}>
+            {alertConfig.buttons.map((btn, idx) => {
+              const isDestructive = btn.style === "destructive";
+              const isCancel = btn.style === "cancel";
+              return (
+                <TouchableOpacity
+                  key={idx}
+                  style={[
+                    alertStyles.btn,
+                    isDestructive && alertStyles.btnDestructive,
+                    isCancel && alertStyles.btnCancel,
+                    alertConfig.buttons.length === 1 && alertStyles.btnSingle,
+                    alertConfig.buttons.length > 2 && alertStyles.btnFull,
+                  ]}
+                  onPress={() => handlePress(btn)}
+                >
+                  <Text style={[alertStyles.btnText, isCancel && alertStyles.btnTextCancel]}>
+                    {btn.text}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  ) : null;
+
+  return { showAlert, AlertModal };
+}
+
+const alertStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 32,
+  },
+  dialog: {
+    backgroundColor: "#FFF",
+    borderRadius: 16,
+    padding: 24,
+    width: "100%",
+    maxWidth: 340,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.2,
+    shadowRadius: 32,
+    elevation: 12,
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#111",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  message: {
+    fontSize: 14,
+    color: "#444",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  buttonRow: { flexDirection: "row", gap: 10, justifyContent: "center" },
+  buttonColumn: { flexDirection: "column", gap: 8 },
+  btn: {
+    flex: 1,
+    backgroundColor: "#CC0000",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 9,
+    alignItems: "center",
+  },
+  btnSingle: { flex: 0, paddingHorizontal: 48 },
+  btnFull: { flex: 0, width: "100%" },
+  btnDestructive: { backgroundColor: "#8B0000" },
+  btnCancel: { backgroundColor: "#F0F0F0" },
+  btnText: { color: "#FFF", fontWeight: "700", fontSize: 14 },
+  btnTextCancel: { color: "#333" },
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function AttendanceScreen({ route }) {
-  const [activeTab, setActiveTab] = useState(route?.params?.activeTab ?? 0);
+  const { showAlert, AlertModal } = useWebAlert();
+
+  const [activeTab, setActiveTab] = useState(
+    Math.min(route?.params?.activeTab ?? 0, 1),
+  );
   const [currentUser, setCurrentUser] = useState(auth.currentUser);
 
   const [classes, setClasses] = useState([]);
@@ -47,6 +164,7 @@ export default function AttendanceScreen({ route }) {
   const [attendanceMap, setAttendanceMap] = useState({});
   const [showClassPicker, setShowClassPicker] = useState(false);
   const [attendanceDate] = useState(new Date().toISOString().split("T")[0]);
+
   const [classSummary, setClassSummary] = useState({
     present: 0,
     absent: 0,
@@ -55,14 +173,8 @@ export default function AttendanceScreen({ route }) {
   });
   const [studentAttendanceSummary, setStudentAttendanceSummary] = useState({});
 
-  const [quickStudentId, setQuickStudentId] = useState("");
-  const [quickStatus, setQuickStatus] = useState("present");
-  const [showQuickClassPicker, setShowQuickClassPicker] = useState(false);
-  const [quickClassId, setQuickClassId] = useState(null);
-
   const [loading, setLoading] = useState(false);
-  const [firestorePermissionError, setFirestorePermissionError] =
-    useState(false);
+  const [firestorePermissionError, setFirestorePermissionError] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -79,65 +191,44 @@ export default function AttendanceScreen({ route }) {
     if (selectedClassId) loadStudents(selectedClassId, false);
   }, [selectedClassId]);
 
-  const loadClassSummary = async (classId) => {
+  const loadClassOverviewData = async (classId) => {
     if (!classId) return;
     try {
-      const q = query(
-        collection(db, "attendance"),
-        where("classId", "==", classId),
-        where("date", "==", attendanceDate),
+      const snap = await getDocs(
+        query(collection(db, "attendance"), where("classId", "==", classId)),
       );
-      const snapshot = await getDocs(q);
-      let p = 0;
-      let a = 0;
-      let l = 0;
-      snapshot.docs.forEach((doc) => {
-        const status = doc.data().status?.toLowerCase();
-        if (status === "present") p += 1;
-        else if (status === "absent") a += 1;
-        else if (status === "late") l += 1;
+
+      let p = 0, a = 0, l = 0;
+      const summary = {};
+
+      snap.docs.forEach((d) => {
+        const record = d.data();
+        const sid = record.studentId;
+        const status = record.status?.toLowerCase();
+
+        if (!summary[sid]) {
+          summary[sid] = { present: 0, absent: 0, late: 0, records: [] };
+        }
+
+        if (status === "present") { p++; summary[sid].present++; }
+        else if (status === "absent") { a++; summary[sid].absent++; }
+        else if (status === "late") { l++; summary[sid].late++; }
+
+        summary[sid].records.push({ date: record.date, status: record.status });
       });
+
+      Object.values(summary).forEach((entry) => {
+        entry.records.sort((x, y) => y.date.localeCompare(x.date));
+      });
+
       const total = p + a + l;
       const rate = total === 0 ? 0 : Math.round((p / total) * 100);
-      setClassSummary({ present: p, absent: a, late: l, rate });
-    } catch (error) {
-      console.error("Failed to load class summary:", error);
-    }
-  };
 
-  const loadStudentAttendanceSummary = async (classId) => {
-    if (!classId) {
-      setStudentAttendanceSummary({});
-      return;
-    }
-    try {
-      const q = query(
-        collection(db, "attendance"),
-        where("classId", "==", classId),
-      );
-      const snapshot = await getDocs(q);
-      const summary = {};
-      snapshot.docs.forEach((doc) => {
-        const record = doc.data();
-        const studentId = record.studentId;
-        if (!summary[studentId]) {
-          summary[studentId] = { present: 0, absent: 0, late: 0, records: [] };
-        }
-        const status = record.status?.toLowerCase();
-        if (status === "present") summary[studentId].present += 1;
-        else if (status === "absent") summary[studentId].absent += 1;
-        else if (status === "late") summary[studentId].late += 1;
-        summary[studentId].records.push({
-          date: record.date,
-          status: record.status,
-        });
-      });
-      Object.values(summary).forEach((entry) => {
-        entry.records.sort((a, b) => b.date.localeCompare(a.date));
-      });
+      setClassSummary({ present: p, absent: a, late: l, rate });
       setStudentAttendanceSummary(summary);
     } catch (error) {
-      console.error("Failed to load student attendance summary:", error);
+      console.error("Failed to load class overview data:", error);
+      setClassSummary({ present: 0, absent: 0, late: 0, rate: 0 });
       setStudentAttendanceSummary({});
     }
   };
@@ -151,8 +242,7 @@ export default function AttendanceScreen({ route }) {
         setCurrentClassId(route.params.classId);
         setCurrentClassName("");
         loadStudents(route.params.classId, true);
-        loadClassSummary(route.params.classId);
-        loadStudentAttendanceSummary(route.params.classId);
+        loadClassOverviewData(route.params.classId);
       }
     }
   }, [route?.params?.classId, route?.params?.openStudentsModal]);
@@ -168,20 +258,15 @@ export default function AttendanceScreen({ route }) {
 
   const loadClasses = async () => {
     const user = auth.currentUser || currentUser;
-    if (!user) {
-      console.log("No user for loading classes");
-      return;
-    }
+    if (!user) return;
     setLoading(true);
     try {
-      console.log("Loading classes for user:", user.uid);
       const q = query(
         collection(db, "classes"),
         where("teacherId", "==", user.uid),
       );
       const snapshot = await getDocs(q);
       const classList = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      console.log("Loaded classes:", classList.length);
       setClasses(classList);
     } catch (error) {
       console.error("Error loading classes:", error);
@@ -191,7 +276,7 @@ export default function AttendanceScreen({ route }) {
       ) {
         setFirestorePermissionError(true);
       }
-      Alert.alert("Error", "Failed to load classes");
+      showAlert("Error", "Failed to load classes");
     }
     setLoading(false);
   };
@@ -217,31 +302,30 @@ export default function AttendanceScreen({ route }) {
       ) {
         setFirestorePermissionError(true);
       }
-      Alert.alert("Error", "Failed to load students");
+      showAlert("Error", "Failed to load students");
     }
   };
 
   const deleteClass = async (classId) => {
     try {
       await deleteDoc(doc(db, "classes", classId));
-      Alert.alert("Success", "Class deleted!");
+      showAlert("Success", "Class deleted!");
       loadClasses();
       if (selectedClassId === classId) {
         setSelectedClassId(null);
         setStudents([]);
       }
     } catch {
-      Alert.alert("Error", "Failed to delete class");
+      showAlert("Error", "Failed to delete class");
     }
   };
 
   const addStudent = async () => {
     if (!studentName || !studentNumber || !currentClassId) {
-      Alert.alert("Error", "Please fill all fields");
+      showAlert("Error", "Please fill all fields");
       return;
     }
     try {
-      // Check if student_number already exists in this class
       const q = query(
         collection(db, "students"),
         where("classId", "==", currentClassId),
@@ -249,7 +333,7 @@ export default function AttendanceScreen({ route }) {
       );
       const snapshot = await getDocs(q);
       if (!snapshot.empty) {
-        Alert.alert("Error", "Student ID already exists in this class");
+        showAlert("Error", "Student ID already exists in this class");
         return;
       }
 
@@ -264,39 +348,38 @@ export default function AttendanceScreen({ route }) {
         student_number: studentNumber,
         createdAt: serverTimestamp(),
       });
-      Alert.alert("Success", "Student added!");
+      showAlert("Success", "Student added!");
       setStudentName("");
       setStudentNumber("");
       loadStudents(currentClassId, true);
     } catch {
-      Alert.alert("Error", "Failed to add student");
+      showAlert("Error", "Failed to add student");
     }
   };
 
   const deleteStudent = async (studentId) => {
     try {
       await deleteDoc(doc(db, "students", studentId));
-      Alert.alert("Success", "Student removed!");
+      showAlert("Success", "Student removed!");
       loadStudents(currentClassId, true);
     } catch {
-      Alert.alert("Error", "Failed to remove student");
+      showAlert("Error", "Failed to remove student");
     }
   };
 
   const addNewClass = async () => {
     if (!subjectName || !section) {
-      Alert.alert("Error", "Please enter subject name and section");
+      showAlert("Error", "Please enter subject name and section");
       return;
     }
 
     const user = auth.currentUser || currentUser;
     if (!user) {
-      Alert.alert("Error", "You must be logged in to add a class");
+      showAlert("Error", "You must be logged in to add a class");
       return;
     }
 
     try {
-      console.log("Adding class for user:", user.uid);
       const classDocId = `${user.uid}_${subjectName}_${section}`
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "_")
@@ -309,7 +392,7 @@ export default function AttendanceScreen({ route }) {
         schedule: schedule || "",
         createdAt: serverTimestamp(),
       });
-      Alert.alert("Success", "Class added successfully!");
+      showAlert("Success", "Class added successfully!");
       setSubjectName("");
       setSection("");
       setSchedule("");
@@ -322,17 +405,17 @@ export default function AttendanceScreen({ route }) {
       ) {
         setFirestorePermissionError(true);
       }
-      Alert.alert("Error", `Failed to add class: ${error.message}`);
+      showAlert("Error", `Failed to add class: ${error.message}`);
     }
   };
 
   const saveAttendance = async () => {
     if (Object.keys(attendanceMap).length === 0) {
-      Alert.alert("Warning", "No attendance marked yet");
+      showAlert("Warning", "No attendance marked yet");
       return;
     }
     if (!selectedClassId) {
-      Alert.alert("Error", "Please select a class");
+      showAlert("Error", "Please select a class");
       return;
     }
     setLoading(true);
@@ -361,7 +444,7 @@ export default function AttendanceScreen({ route }) {
         },
       );
       await Promise.all(promises);
-      Alert.alert("Success", "Attendance saved!");
+      showAlert("Success", "Attendance saved!");
       setAttendanceMap({});
     } catch (error) {
       console.error("Error saving attendance:", error);
@@ -371,7 +454,7 @@ export default function AttendanceScreen({ route }) {
       ) {
         setFirestorePermissionError(true);
       }
-      Alert.alert("Error", "Failed to save attendance");
+      showAlert("Error", "Failed to save attendance");
     }
     setLoading(false);
   };
@@ -384,62 +467,6 @@ export default function AttendanceScreen({ route }) {
       }
       return { ...prev, [studentId]: status };
     });
-  };
-
-  const markQuickAttendance = async () => {
-    if (!quickStudentId || !quickClassId) {
-      Alert.alert("Error", "Please enter student ID and select a class");
-      return;
-    }
-    try {
-      const user = auth.currentUser || currentUser;
-      const studentQuery = query(
-        collection(db, "students"),
-        where("classId", "==", quickClassId),
-        where("student_number", "==", quickStudentId),
-      );
-      const snap = await getDocs(studentQuery);
-      if (snap.empty) {
-        Alert.alert("Error", "Student not found");
-        return;
-      }
-      const student = snap.docs[0];
-      const today = new Date().toISOString().split("T")[0];
-
-      const existing = await getDocs(
-        query(
-          collection(db, "attendance"),
-          where("studentId", "==", student.id),
-          where("classId", "==", quickClassId),
-          where("date", "==", today),
-        ),
-      );
-      for (const d of existing.docs)
-        await deleteDoc(doc(db, "attendance", d.id));
-
-      await addDoc(collection(db, "attendance"), {
-        studentId: student.id,
-        classId: quickClassId,
-        teacherId: user.uid,
-        status: quickStatus,
-        date: today,
-        createdAt: serverTimestamp(),
-      });
-      Alert.alert(
-        "Success",
-        `Marked ${quickStatus} for ${student.data().name}`,
-      );
-      setQuickStudentId("");
-    } catch (error) {
-      console.error("Error marking attendance:", error);
-      if (
-        error.code === "permission-denied" ||
-        error.message?.includes("Missing or insufficient permissions")
-      ) {
-        setFirestorePermissionError(true);
-      }
-      Alert.alert("Error", "Failed to mark attendance");
-    }
   };
 
   const filteredStudents = students.filter(
@@ -462,7 +489,6 @@ export default function AttendanceScreen({ route }) {
     );
   }
 
-  // Check authentication
   if (!currentUser && !auth.currentUser) {
     return (
       <View style={[styles.container, styles.centerContent]}>
@@ -480,7 +506,7 @@ export default function AttendanceScreen({ route }) {
       </View>
 
       <View style={styles.tabContainer}>
-        {["My Classes", "Mark Attendance", "Type ID"].map((label, index) => (
+        {["My Classes", "Mark Attendance"].map((label, index) => (
           <TouchableOpacity
             key={index}
             style={[styles.tab, activeTab === index && styles.activeTab]}
@@ -499,7 +525,6 @@ export default function AttendanceScreen({ route }) {
       </View>
 
       <ScrollView style={styles.content}>
-        {/* TAB 0: MY CLASSES */}
         {activeTab === 0 && (
           <View>
             <Text style={styles.sectionTitle}>Add New Class</Text>
@@ -548,6 +573,7 @@ export default function AttendanceScreen({ route }) {
                       );
                       setShowStudentsModal(true);
                       loadStudents(cls.id, true);
+                      loadClassOverviewData(cls.id);
                     }}
                   >
                     <Text style={styles.studentsBtnText}>Students</Text>
@@ -555,7 +581,7 @@ export default function AttendanceScreen({ route }) {
                   <TouchableOpacity
                     style={styles.deleteBtn}
                     onPress={() =>
-                      Alert.alert("Delete", "Delete this class?", [
+                      showAlert("Delete", "Delete this class?", [
                         { text: "Cancel" },
                         { text: "Delete", onPress: () => deleteClass(cls.id) },
                       ])
@@ -569,7 +595,6 @@ export default function AttendanceScreen({ route }) {
           </View>
         )}
 
-        {/* TAB 1: MARK ATTENDANCE */}
         {activeTab === 1 && (
           <View>
             <Text style={styles.sectionTitle}>Select Class</Text>
@@ -681,85 +706,6 @@ export default function AttendanceScreen({ route }) {
             )}
           </View>
         )}
-
-        {/* TAB 2: TYPE ID */}
-        {activeTab === 2 && (
-          <View>
-            <Text style={styles.sectionTitle}>Quick Attendance by ID</Text>
-            <Text style={styles.sectionTitle}>Select Class</Text>
-            <TouchableOpacity
-              style={styles.pickerContainer}
-              onPress={() => setShowQuickClassPicker(!showQuickClassPicker)}
-            >
-              <Text style={styles.pickerText}>
-                {quickClassId
-                  ? `${classes.find((c) => c.id === quickClassId)?.subject_name} – ${classes.find((c) => c.id === quickClassId)?.section}`
-                  : "-- Select Class --"}
-              </Text>
-              <Text style={styles.pickerArrow}>
-                {showQuickClassPicker ? "▲" : "▼"}
-              </Text>
-            </TouchableOpacity>
-            {showQuickClassPicker && (
-              <View style={styles.pickerDropdown}>
-                {classes.map((cls) => (
-                  <TouchableOpacity
-                    key={cls.id}
-                    style={styles.pickerOption}
-                    onPress={() => {
-                      setQuickClassId(cls.id);
-                      setShowQuickClassPicker(false);
-                    }}
-                  >
-                    <Text
-                      style={styles.pickerOptionText}
-                    >{`${cls.subject_name} – ${cls.section}`}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-            {quickClassId && (
-              <>
-                <TextInput
-                  style={styles.input}
-                  placeholder="Enter Student ID Number"
-                  value={quickStudentId}
-                  onChangeText={setQuickStudentId}
-                  keyboardType="numeric"
-                />
-                <Text style={styles.sectionTitle}>Status</Text>
-                <View style={styles.statusContainer}>
-                  {["present", "absent", "late"].map((status) => (
-                    <TouchableOpacity
-                      key={status}
-                      style={[
-                        styles.statusButton,
-                        quickStatus === status && styles.activeStatusButton,
-                      ]}
-                      onPress={() => setQuickStatus(status)}
-                    >
-                      <Text
-                        style={[
-                          styles.statusButtonText,
-                          quickStatus === status &&
-                            styles.activeStatusButtonText,
-                        ]}
-                      >
-                        {status.toUpperCase()}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                <TouchableOpacity
-                  style={styles.addButton}
-                  onPress={markQuickAttendance}
-                >
-                  <Text style={styles.buttonText}>MARK ATTENDANCE</Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
-        )}
       </ScrollView>
 
       {/* STUDENTS MODAL */}
@@ -784,6 +730,7 @@ export default function AttendanceScreen({ route }) {
               <Text style={styles.closeButtonText}>✕</Text>
             </TouchableOpacity>
           </View>
+
           <ScrollView style={styles.modalContent}>
             <Text style={styles.classOverviewHeading}>Class Overview</Text>
             <View style={styles.summaryContainer}>
@@ -868,7 +815,11 @@ export default function AttendanceScreen({ route }) {
                           .slice(0, 3)
                           .map(
                             (rec, idx) =>
-                              `${rec.date} ${rec.status}${idx < Math.min(summary.records.length, 3) - 1 ? " · " : ""}`,
+                              `${rec.date} ${rec.status}${
+                                idx < Math.min(summary.records.length, 3) - 1
+                                  ? " · "
+                                  : ""
+                              }`,
                           )}
                       </Text>
                     ) : (
@@ -880,7 +831,7 @@ export default function AttendanceScreen({ route }) {
                   <TouchableOpacity
                     style={styles.deleteStudentBtn}
                     onPress={() =>
-                      Alert.alert("Delete", "Remove this student?", [
+                      showAlert("Delete", "Remove this student?", [
                         { text: "Cancel" },
                         {
                           text: "Remove",
@@ -897,12 +848,15 @@ export default function AttendanceScreen({ route }) {
           </ScrollView>
         </View>
       </Modal>
+
+      {AlertModal}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FFFFFF" },
+  centerContent: { justifyContent: "center", alignItems: "center", padding: 24 },
   header: {
     backgroundColor: "#CC0000",
     paddingTop: 48,
@@ -1084,21 +1038,9 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   studentInfo: { flex: 1, marginRight: 12 },
-  studentTotalsRow: {
-    flexDirection: "row",
-    marginTop: 8,
-    flexWrap: "wrap",
-  },
-  studentTotal: {
-    fontSize: 13,
-    fontWeight: "bold",
-    marginRight: 16,
-  },
-  attendanceHistory: {
-    marginTop: 8,
-    fontSize: 12,
-    color: "#555",
-  },
+  studentTotalsRow: { flexDirection: "row", marginTop: 8, flexWrap: "wrap" },
+  studentTotal: { fontSize: 13, fontWeight: "bold", marginRight: 16 },
+  attendanceHistory: { marginTop: 8, fontSize: 12, color: "#555" },
   studentId: { fontSize: 14, color: "#666", marginTop: 4 },
   deleteStudentBtn: {
     backgroundColor: "#CC0000",
@@ -1107,22 +1049,5 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   deleteStudentBtnText: { color: "#FFF", fontSize: 12 },
-  statusContainer: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    marginVertical: 12,
-  },
-  statusButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 2,
-    borderColor: "#DDD",
-    flex: 1,
-    marginHorizontal: 4,
-    alignItems: "center",
-  },
-  activeStatusButton: { backgroundColor: "#CC0000", borderColor: "#CC0000" },
-  statusButtonText: { fontWeight: "bold", color: "#666" },
-  activeStatusButtonText: { color: "#FFF" },
+  comingSoon: { textAlign: "center", color: "#777", marginTop: 8 },
 });

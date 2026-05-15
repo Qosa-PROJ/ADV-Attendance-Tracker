@@ -1,4 +1,5 @@
 // src/screens/ProfileScreen.jsx
+import { Alert as RNAlert } from "react-native";
 import React, { useState, useEffect } from "react";
 import {
   View,
@@ -6,10 +7,10 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   ScrollView,
   ActivityIndicator,
   Image,
+  Modal,
 } from "react-native";
 import { auth, db } from "../FireBase/FireBaseConfig";
 import {
@@ -33,16 +34,127 @@ import {
   where,
 } from "firebase/firestore";
 
-// Safely detect web without using Platform (avoids PlatformConstants native module crash)
 const isWeb = typeof document !== "undefined";
 
-// Conditionally import ImagePicker only on native platforms
 let ImagePicker;
 if (!isWeb) {
   ImagePicker = require("expo-image-picker");
 }
 
+// ─── Web-compatible Alert (works on both Expo Go and Web) ───────────────────
+function useWebAlert() {
+  const [alertConfig, setAlertConfig] = React.useState(null);
+
+  const showAlert = React.useCallback((title, message, buttons) => {
+    if (!isWeb) {
+      RNAlert.alert(title, message, buttons);
+      return;
+    }
+    const resolvedButtons =
+      buttons && buttons.length > 0
+        ? buttons
+        : [{ text: "OK", style: "default" }];
+    setAlertConfig({ title, message, buttons: resolvedButtons });
+  }, []);
+
+  const handlePress = (btn) => {
+    setAlertConfig(null);
+    if (btn.onPress) btn.onPress();
+  };
+
+  const AlertModal = alertConfig ? (
+    <Modal transparent visible animationType="fade" onRequestClose={() => setAlertConfig(null)}>
+      <View style={alertStyles.overlay}>
+        <View style={alertStyles.dialog}>
+          {alertConfig.title ? <Text style={alertStyles.title}>{alertConfig.title}</Text> : null}
+          {alertConfig.message ? <Text style={alertStyles.message}>{alertConfig.message}</Text> : null}
+          <View style={[alertStyles.buttonRow, alertConfig.buttons.length > 2 && alertStyles.buttonColumn]}>
+            {alertConfig.buttons.map((btn, idx) => {
+              const isDestructive = btn.style === "destructive";
+              const isCancel = btn.style === "cancel";
+              return (
+                <TouchableOpacity
+                  key={idx}
+                  style={[
+                    alertStyles.btn,
+                    isDestructive && alertStyles.btnDestructive,
+                    isCancel && alertStyles.btnCancel,
+                    alertConfig.buttons.length === 1 && alertStyles.btnSingle,
+                    alertConfig.buttons.length > 2 && alertStyles.btnFull,
+                  ]}
+                  onPress={() => handlePress(btn)}
+                >
+                  <Text style={[alertStyles.btnText, isCancel && alertStyles.btnTextCancel]}>
+                    {btn.text}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+      </View>
+    </Modal>
+  ) : null;
+
+  return { showAlert, AlertModal };
+}
+
+const alertStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 32,
+  },
+  dialog: {
+    backgroundColor: "#FFF",
+    borderRadius: 16,
+    padding: 24,
+    width: "100%",
+    maxWidth: 340,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.2,
+    shadowRadius: 32,
+    elevation: 12,
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: "700",
+    color: "#111",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  message: {
+    fontSize: 14,
+    color: "#444",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  buttonRow: { flexDirection: "row", gap: 10, justifyContent: "center" },
+  buttonColumn: { flexDirection: "column", gap: 8 },
+  btn: {
+    flex: 1,
+    backgroundColor: "#CC0000",
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 9,
+    alignItems: "center",
+  },
+  btnSingle: { flex: 0, paddingHorizontal: 48 },
+  btnFull: { flex: 0, width: "100%" },
+  btnDestructive: { backgroundColor: "#8B0000" },
+  btnCancel: { backgroundColor: "#F0F0F0" },
+  btnText: { color: "#FFF", fontWeight: "700", fontSize: 14 },
+  btnTextCancel: { color: "#333" },
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function ProfileScreen({ onSignOut }) {
+  const { showAlert, AlertModal } = useWebAlert();
+
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [photoURL, setPhotoURL] = useState("");
@@ -65,34 +177,24 @@ export default function ProfileScreen({ onSignOut }) {
 
   const loadProfile = async () => {
     const user = auth.currentUser;
-    if (!user) {
-      setFetching(false);
-      return;
-    }
+    if (!user) { setFetching(false); return; }
 
-    try {
-      await user.reload();
-    } catch (reloadError) {
-      console.warn("Failed to reload user profile:", reloadError);
-    }
+    try { await user.reload(); } catch (e) { console.warn(e); }
 
     setEmail(user.email || "");
 
     try {
       const userDoc = await getDoc(doc(db, "users", user.uid));
-
       if (userDoc.exists()) {
         const data = userDoc.data();
-        const resolvedPhoto = data.photoURL || user.photoURL || "";
-        const resolvedName = data.name || user.displayName || "";
-        setName(resolvedName);
-        setPhotoURL(resolvedPhoto);
+        setName(data.name || user.displayName || "");
+        setPhotoURL(data.photoURL || user.photoURL || "");
       } else {
         setName(user.displayName || "");
         setPhotoURL(user.photoURL || "");
       }
     } catch (err) {
-      console.error("Error loading profile from Firestore:", err);
+      console.error(err);
       setName(user.displayName || "");
       setPhotoURL(user.photoURL || "");
     }
@@ -102,21 +204,15 @@ export default function ProfileScreen({ onSignOut }) {
 
   const pickImage = async () => {
     if (!ImagePicker) {
-      Alert.alert("Not supported", "Image picker is not available on web");
+      showAlert("Not supported", "Image picker is not available on web");
       return;
     }
-
     try {
-      const { status } =
-        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert(
-          "Permission required",
-          "We need permission to access your photos to change your profile picture.",
-        );
+        showAlert("Permission required", "We need permission to access your photos.");
         return;
       }
-
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
@@ -124,54 +220,38 @@ export default function ProfileScreen({ onSignOut }) {
         quality: 0.5,
         base64: true,
       });
-
       if (!result.canceled) {
         const asset = result.assets?.[0] || result;
         const base64 = asset?.base64;
         if (base64) {
           await saveProfilePhoto(base64);
         } else {
-          Alert.alert("Error", "Could not read image data.");
+          showAlert("Error", "Could not read image data.");
         }
       }
     } catch (error) {
-      console.error("Error picking image:", error);
-      Alert.alert("Error", "Failed to pick image: " + error.message);
+      showAlert("Error", "Failed to pick image: " + error.message);
     }
   };
 
   const saveProfilePhoto = async (base64String) => {
     const user = auth.currentUser;
     if (!user || !base64String) return;
-
     setSavingPhoto(true);
     try {
       const dataUri = `data:image/jpeg;base64,${base64String}`;
-
       const sizeInKB = (base64String.length * 3) / 4 / 1024;
-      console.log(`Image size: ~${Math.round(sizeInKB)}KB`);
       if (sizeInKB > 900) {
-        Alert.alert(
-          "Image too large",
-          "Please choose a smaller image or crop it more tightly.",
-        );
+        showAlert("Image too large", "Please choose a smaller image or crop it more tightly.");
         setSavingPhoto(false);
         return;
       }
-
-      await setDoc(
-        doc(db, "users", user.uid),
-        { photoURL: dataUri },
-        { merge: true },
-      );
-
+      await setDoc(doc(db, "users", user.uid), { photoURL: dataUri }, { merge: true });
       await updateProfile(user, { photoURL: "firestore_photo" });
-
       setPhotoURL(dataUri);
-      Alert.alert("Success", "Profile photo updated!");
+      showAlert("Success", "Profile photo updated!");
     } catch (error) {
-      console.error("Error saving profile photo:", error);
-      Alert.alert("Error", "Unable to save profile photo: " + error.message);
+      showAlert("Error", "Unable to save profile photo: " + error.message);
     } finally {
       setSavingPhoto(false);
     }
@@ -180,79 +260,50 @@ export default function ProfileScreen({ onSignOut }) {
   const handleSaveChanges = async () => {
     const user = auth.currentUser;
     if (!user) return;
-    if (!name.trim()) {
-      Alert.alert("Error", "Name cannot be empty");
-      return;
-    }
-    if (!email.trim()) {
-      Alert.alert("Error", "Email cannot be empty");
-      return;
-    }
+    if (!name.trim()) { showAlert("Error", "Name cannot be empty"); return; }
+    if (!email.trim()) { showAlert("Error", "Email cannot be empty"); return; }
 
-    const emailChanged =
-      email.trim().toLowerCase() !== (user.email || "").toLowerCase();
+    const emailChanged = email.trim().toLowerCase() !== (user.email || "").toLowerCase();
     const passwordChanged = newPassword.length > 0;
     const requiresPassword = emailChanged || passwordChanged;
 
     if (passwordChanged && newPassword.length < 6) {
-      Alert.alert("Error", "New password must be at least 6 characters");
+      showAlert("Error", "New password must be at least 6 characters");
       return;
     }
     if (requiresPassword && !currentPassword) {
-      Alert.alert(
-        "Error",
-        "Enter your current password to change email or password",
-      );
+      showAlert("Error", "Enter your current password to change email or password");
       return;
     }
 
     setLoading(true);
     try {
       if (requiresPassword) {
-        const credential = EmailAuthProvider.credential(
-          user.email,
-          currentPassword,
-        );
+        const credential = EmailAuthProvider.credential(user.email, currentPassword);
         await reauthenticateWithCredential(user, credential);
       }
-
       if (name.trim() !== user.displayName) {
-        await updateProfile(user, {
-          displayName: name.trim(),
-          photoURL: user.photoURL || null,
-        });
+        await updateProfile(user, { displayName: name.trim(), photoURL: user.photoURL || null });
       }
-
-      if (emailChanged) {
-        await updateEmail(user, email.trim());
-      }
-
-      if (passwordChanged) {
-        await updatePassword(user, newPassword);
-      }
+      if (emailChanged) await updateEmail(user, email.trim());
+      if (passwordChanged) await updatePassword(user, newPassword);
 
       await setDoc(
         doc(db, "users", user.uid),
-        {
-          name: name.trim(),
-          email: email.trim(),
-        },
+        { name: name.trim(), email: email.trim() },
         { merge: true },
       );
 
       setCurrentPassword("");
       setNewPassword("");
-      Alert.alert("Success", "Profile updated successfully!");
+      showAlert("Success", "Profile updated successfully!");
     } catch (error) {
-      console.error("Save error:", error);
       let message = error.message;
-      if (error.code === "auth/wrong-password")
-        message = "Current password is incorrect";
-      else if (error.code === "auth/weak-password")
-        message = "New password is too weak";
+      if (error.code === "auth/wrong-password") message = "Current password is incorrect";
+      else if (error.code === "auth/weak-password") message = "New password is too weak";
       else if (error.code === "auth/requires-recent-login")
         message = "Please enter your current password to make this change";
-      Alert.alert("Error", message);
+      showAlert("Error", message);
     }
     setLoading(false);
   };
@@ -261,120 +312,79 @@ export default function ProfileScreen({ onSignOut }) {
     const user = auth.currentUser;
     if (!user) return;
     if (!currentPassword) {
-      Alert.alert(
-        "Error",
-        "Enter your current password to delete your account.",
-      );
+      showAlert("Error", "Enter your current password to delete your account.");
       return;
     }
 
     const doDelete = async () => {
       setLoading(true);
       try {
-        const credential = EmailAuthProvider.credential(
-          user.email,
-          currentPassword,
-        );
+        const credential = EmailAuthProvider.credential(user.email, currentPassword);
         await reauthenticateWithCredential(user, credential);
 
         const classSnap = await getDocs(
           query(collection(db, "classes"), where("teacherId", "==", user.uid)),
         );
         const classIds = classSnap.docs.map((d) => d.id);
-
-        await Promise.all(
-          classSnap.docs.map((d) => deleteDoc(doc(db, "classes", d.id))),
-        );
+        await Promise.all(classSnap.docs.map((d) => deleteDoc(doc(db, "classes", d.id))));
 
         const studentSnap = await getDocs(
           query(collection(db, "students"), where("teacherId", "==", user.uid)),
         );
-        await Promise.all(
-          studentSnap.docs.map((d) => deleteDoc(doc(db, "students", d.id))),
-        );
+        await Promise.all(studentSnap.docs.map((d) => deleteDoc(doc(db, "students", d.id))));
 
         for (let i = 0; i < classIds.length; i += 10) {
           const chunk = classIds.slice(i, i + 10);
           const attSnap = await getDocs(
             query(collection(db, "attendance"), where("classId", "in", chunk)),
           );
-          await Promise.all(
-            attSnap.docs.map((d) => deleteDoc(doc(db, "attendance", d.id))),
-          );
+          await Promise.all(attSnap.docs.map((d) => deleteDoc(doc(db, "attendance", d.id))));
         }
 
         await deleteUser(user);
-        Alert.alert("Success", "Your account has been deleted.");
+        showAlert("Success", "Your account has been deleted.");
       } catch (error) {
         let message = error.message;
-        if (error.code === "auth/wrong-password")
-          message = "Current password is incorrect";
+        if (error.code === "auth/wrong-password") message = "Current password is incorrect";
         else if (error.code === "auth/requires-recent-login")
-          message =
-            "Please re-open the app and try again to delete your account.";
-        Alert.alert("Error", message);
+          message = "Please re-open the app and try again to delete your account.";
+        showAlert("Error", message);
       }
       setLoading(false);
     };
 
-    if (isWeb) {
-      const confirmed = window.confirm(
-        "This will permanently delete your account and all your data. This cannot be undone. Are you sure?",
-      );
-      if (confirmed) await doDelete();
-    } else {
-      Alert.alert(
-        "Delete Account",
-        "This will permanently delete your account and all your data. This cannot be undone.",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Delete", style: "destructive", onPress: doDelete },
-        ],
-      );
-    }
+    showAlert(
+      "Delete Account",
+      "This will permanently delete your account and all your data. This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: doDelete },
+      ],
+    );
   };
 
   const handleLogout = async () => {
     const doSignOut = async () => {
       try {
         await signOut(auth);
-        if (onSignOut) {
-          onSignOut();
-        }
+        if (onSignOut) onSignOut();
       } catch {
-        Alert.alert("Error", "Failed to log out");
+        showAlert("Error", "Failed to log out");
       }
     };
 
-    if (isWeb) {
-      const confirmed = window.confirm("Are you sure you want to log out?");
-      if (confirmed) await doSignOut();
-    } else {
-      Alert.alert("Logout", "Are you sure?", [
-        { text: "Cancel", style: "cancel" },
-        { text: "Logout", style: "destructive", onPress: doSignOut },
-      ]);
-    }
+    showAlert("Logout", "Are you sure you want to log out?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Logout", style: "destructive", onPress: doSignOut },
+    ]);
   };
 
   const getInitials = (n) =>
-    n
-      ? n
-          .split(" ")
-          .map((w) => w[0])
-          .join("")
-          .toUpperCase()
-          .slice(0, 2)
-      : "T";
+    n ? n.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2) : "T";
 
   if (fetching) {
     return (
-      <View
-        style={[
-          styles.container,
-          { justifyContent: "center", alignItems: "center" },
-        ]}
-      >
+      <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
         <ActivityIndicator color="#CC0000" size="large" />
       </View>
     );
@@ -383,11 +393,7 @@ export default function ProfileScreen({ onSignOut }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.avatarWrapper}
-          onPress={pickImage}
-          disabled={savingPhoto}
-        >
+        <TouchableOpacity style={styles.avatarWrapper} onPress={pickImage} disabled={savingPhoto}>
           <View style={styles.avatarCircle}>
             {photoURL ? (
               <Image
@@ -400,11 +406,7 @@ export default function ProfileScreen({ onSignOut }) {
             )}
           </View>
           {savingPhoto ? (
-            <ActivityIndicator
-              color="#FFF"
-              size="small"
-              style={{ marginTop: 6 }}
-            />
+            <ActivityIndicator color="#FFF" size="small" style={{ marginTop: 6 }} />
           ) : (
             <Text style={styles.editAvatarText}>Change</Text>
           )}
@@ -440,16 +442,11 @@ export default function ProfileScreen({ onSignOut }) {
           autoCapitalize="none"
         />
         <Text style={styles.hint}>
-          Change your email address here. Enter current password below when
-          saving.
+          Change your email address here. Enter current password below when saving.
         </Text>
 
-        <Text style={[styles.sectionTitle, { marginTop: 24 }]}>
-          Change Password
-        </Text>
-        <Text style={styles.hint}>
-          Leave blank to keep your current password.
-        </Text>
+        <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Change Password</Text>
+        <Text style={styles.hint}>Leave blank to keep your current password.</Text>
 
         <Text style={styles.label}>Current Password</Text>
         <TextInput
@@ -495,6 +492,8 @@ export default function ProfileScreen({ onSignOut }) {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {AlertModal}
     </View>
   );
 }
@@ -525,18 +524,8 @@ const styles = StyleSheet.create({
   emailHeader: { color: "#FFCCCC", fontSize: 13, marginTop: 2 },
   role: { color: "rgba(255,255,255,0.7)", fontSize: 12, marginTop: 4 },
   content: { flex: 1, padding: 16 },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#CC0000",
-    marginBottom: 12,
-  },
-  label: {
-    fontSize: 13,
-    color: "#CC0000",
-    fontWeight: "bold",
-    marginBottom: 4,
-  },
+  sectionTitle: { fontSize: 16, fontWeight: "bold", color: "#CC0000", marginBottom: 12 },
+  label: { fontSize: 13, color: "#CC0000", fontWeight: "bold", marginBottom: 4 },
   hint: { fontSize: 11, color: "#999", marginBottom: 12, marginTop: -8 },
   input: {
     backgroundColor: "#F5F5F5",
@@ -569,13 +558,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   logoutText: { color: "#FFF", fontWeight: "bold", fontSize: 15 },
-  savingPhotoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 6,
-  },
-  savingPhotoText: {
-    color: "#FFF",
-    fontSize: 12,
-  },
+  savingPhotoRow: { flexDirection: "row", alignItems: "center", marginTop: 6 },
+  savingPhotoText: { color: "#FFF", fontSize: 12 },
 });
