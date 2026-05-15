@@ -9,6 +9,7 @@ import {
   StyleSheet,
   ScrollView,
   Modal,
+  Image,
 } from "react-native";
 import { createUserWithEmailAndPassword, signOut } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
@@ -39,12 +40,26 @@ function useWebAlert() {
   };
 
   const AlertModal = alertConfig ? (
-    <Modal transparent visible animationType="fade" onRequestClose={() => setAlertConfig(null)}>
+    <Modal
+      transparent
+      visible
+      animationType="fade"
+      onRequestClose={() => setAlertConfig(null)}
+    >
       <View style={alertStyles.overlay}>
         <View style={alertStyles.dialog}>
-          {alertConfig.title ? <Text style={alertStyles.title}>{alertConfig.title}</Text> : null}
-          {alertConfig.message ? <Text style={alertStyles.message}>{alertConfig.message}</Text> : null}
-          <View style={[alertStyles.buttonRow, alertConfig.buttons.length > 2 && alertStyles.buttonColumn]}>
+          {alertConfig.title ? (
+            <Text style={alertStyles.title}>{alertConfig.title}</Text>
+          ) : null}
+          {alertConfig.message ? (
+            <Text style={alertStyles.message}>{alertConfig.message}</Text>
+          ) : null}
+          <View
+            style={[
+              alertStyles.buttonRow,
+              alertConfig.buttons.length > 2 && alertStyles.buttonColumn,
+            ]}
+          >
             {alertConfig.buttons.map((btn, idx) => {
               const isDestructive = btn.style === "destructive";
               const isCancel = btn.style === "cancel";
@@ -60,7 +75,12 @@ function useWebAlert() {
                   ]}
                   onPress={() => handlePress(btn)}
                 >
-                  <Text style={[alertStyles.btnText, isCancel && alertStyles.btnTextCancel]}>
+                  <Text
+                    style={[
+                      alertStyles.btnText,
+                      isCancel && alertStyles.btnTextCancel,
+                    ]}
+                  >
                     {btn.text}
                   </Text>
                 </TouchableOpacity>
@@ -135,6 +155,8 @@ export default function RegisterScreen({ navigation, onRegistered }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleRegister = async () => {
@@ -155,7 +177,11 @@ export default function RegisterScreen({ navigation, onRegistered }) {
     try {
       setIsRegistering(true);
 
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const userCredential = await createUserWithEmailAndPassword(
+        auth,
+        email,
+        password,
+      );
 
       await setDoc(doc(db, "users", userCredential.user.uid), {
         name,
@@ -202,22 +228,52 @@ export default function RegisterScreen({ navigation, onRegistered }) {
       />
 
       <Text style={styles.label}>Password</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Enter your password"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-      />
+      <View style={styles.passwordInputWrapper}>
+        <TextInput
+          style={styles.passwordInput}
+          placeholder="Enter your password"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry={!showPassword}
+        />
+        <TouchableOpacity
+          style={styles.passwordToggle}
+          onPress={() => setShowPassword(!showPassword)}
+        >
+          <Image
+            source={
+              showPassword
+                ? require("../../assets/hide-password.png")
+                : require("../../assets/view-password.png")
+            }
+            style={styles.passwordIcon}
+          />
+        </TouchableOpacity>
+      </View>
 
       <Text style={styles.label}>Confirm Password</Text>
-      <TextInput
-        style={styles.input}
-        placeholder="Re-enter your password"
-        value={confirmPassword}
-        onChangeText={setConfirmPassword}
-        secureTextEntry
-      />
+      <View style={styles.passwordInputWrapper}>
+        <TextInput
+          style={styles.passwordInput}
+          placeholder="Re-enter your password"
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          secureTextEntry={!showConfirmPassword}
+        />
+        <TouchableOpacity
+          style={styles.passwordToggle}
+          onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+        >
+          <Image
+            source={
+              showConfirmPassword
+                ? require("../../assets/hide-password.png")
+                : require("../../assets/view-password.png")
+            }
+            style={styles.passwordIcon}
+          />
+        </TouchableOpacity>
+      </View>
 
       <TouchableOpacity
         style={styles.button}
@@ -242,12 +298,59 @@ export default function RegisterScreen({ navigation, onRegistered }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flexGrow: 1, backgroundColor: "#FFFFFF", padding: 32, paddingTop: 60 },
-  title: { fontSize: 28, fontWeight: "bold", color: "#CC0000", textAlign: "center" },
-  subtitle: { fontSize: 12, color: "#1A3A8F", textAlign: "center", marginBottom: 32 },
-  label: { fontSize: 13, color: "#CC0000", fontWeight: "bold", marginBottom: 4 },
-  input: { backgroundColor: "#F5F5F5", padding: 14, borderRadius: 8, marginBottom: 16, fontSize: 14 },
-  button: { backgroundColor: "#CC0000", padding: 16, borderRadius: 8, alignItems: "center", marginTop: 16 },
+  container: {
+    flexGrow: 1,
+    backgroundColor: "#FFFFFF",
+    padding: 32,
+    paddingTop: 60,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: "bold",
+    color: "#CC0000",
+    textAlign: "center",
+  },
+  subtitle: {
+    fontSize: 12,
+    color: "#1A3A8F",
+    textAlign: "center",
+    marginBottom: 32,
+  },
+  label: {
+    fontSize: 13,
+    color: "#CC0000",
+    fontWeight: "bold",
+    marginBottom: 4,
+  },
+  input: {
+    backgroundColor: "#F5F5F5",
+    padding: 14,
+    borderRadius: 8,
+    marginBottom: 16,
+    fontSize: 14,
+  },
+  passwordInputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F5F5F5",
+    borderRadius: 8,
+    marginBottom: 16,
+    paddingRight: 8,
+  },
+  passwordInput: { flex: 1, padding: 14, fontSize: 14 },
+  passwordToggle: {
+    padding: 8,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  passwordIcon: { width: 20, height: 20 },
+  button: {
+    backgroundColor: "#CC0000",
+    padding: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    marginTop: 16,
+  },
   buttonText: { color: "#FFF", fontWeight: "bold", fontSize: 15 },
   footer: { flexDirection: "row", justifyContent: "center", marginTop: 24 },
   link: { color: "#1A3A8F", fontWeight: "bold" },

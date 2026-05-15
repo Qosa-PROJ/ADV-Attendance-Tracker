@@ -63,12 +63,26 @@ function useWebAlert() {
   };
 
   const AlertModal = alertConfig ? (
-    <Modal transparent visible animationType="fade" onRequestClose={() => setAlertConfig(null)}>
+    <Modal
+      transparent
+      visible
+      animationType="fade"
+      onRequestClose={() => setAlertConfig(null)}
+    >
       <View style={alertStyles.overlay}>
         <View style={alertStyles.dialog}>
-          {alertConfig.title ? <Text style={alertStyles.title}>{alertConfig.title}</Text> : null}
-          {alertConfig.message ? <Text style={alertStyles.message}>{alertConfig.message}</Text> : null}
-          <View style={[alertStyles.buttonRow, alertConfig.buttons.length > 2 && alertStyles.buttonColumn]}>
+          {alertConfig.title ? (
+            <Text style={alertStyles.title}>{alertConfig.title}</Text>
+          ) : null}
+          {alertConfig.message ? (
+            <Text style={alertStyles.message}>{alertConfig.message}</Text>
+          ) : null}
+          <View
+            style={[
+              alertStyles.buttonRow,
+              alertConfig.buttons.length > 2 && alertStyles.buttonColumn,
+            ]}
+          >
             {alertConfig.buttons.map((btn, idx) => {
               const isDestructive = btn.style === "destructive";
               const isCancel = btn.style === "cancel";
@@ -84,7 +98,12 @@ function useWebAlert() {
                   ]}
                   onPress={() => handlePress(btn)}
                 >
-                  <Text style={[alertStyles.btnText, isCancel && alertStyles.btnTextCancel]}>
+                  <Text
+                    style={[
+                      alertStyles.btnText,
+                      isCancel && alertStyles.btnTextCancel,
+                    ]}
+                  >
                     {btn.text}
                   </Text>
                 </TouchableOpacity>
@@ -160,6 +179,8 @@ export default function ProfileScreen({ onSignOut }) {
   const [photoURL, setPhotoURL] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [savingPhoto, setSavingPhoto] = useState(false);
   const [fetching, setFetching] = useState(true);
@@ -177,9 +198,16 @@ export default function ProfileScreen({ onSignOut }) {
 
   const loadProfile = async () => {
     const user = auth.currentUser;
-    if (!user) { setFetching(false); return; }
+    if (!user) {
+      setFetching(false);
+      return;
+    }
 
-    try { await user.reload(); } catch (e) { console.warn(e); }
+    try {
+      await user.reload();
+    } catch (e) {
+      console.warn(e);
+    }
 
     setEmail(user.email || "");
 
@@ -208,9 +236,13 @@ export default function ProfileScreen({ onSignOut }) {
       return;
     }
     try {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const { status } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== "granted") {
-        showAlert("Permission required", "We need permission to access your photos.");
+        showAlert(
+          "Permission required",
+          "We need permission to access your photos.",
+        );
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -242,11 +274,18 @@ export default function ProfileScreen({ onSignOut }) {
       const dataUri = `data:image/jpeg;base64,${base64String}`;
       const sizeInKB = (base64String.length * 3) / 4 / 1024;
       if (sizeInKB > 900) {
-        showAlert("Image too large", "Please choose a smaller image or crop it more tightly.");
+        showAlert(
+          "Image too large",
+          "Please choose a smaller image or crop it more tightly.",
+        );
         setSavingPhoto(false);
         return;
       }
-      await setDoc(doc(db, "users", user.uid), { photoURL: dataUri }, { merge: true });
+      await setDoc(
+        doc(db, "users", user.uid),
+        { photoURL: dataUri },
+        { merge: true },
+      );
       await updateProfile(user, { photoURL: "firestore_photo" });
       setPhotoURL(dataUri);
       showAlert("Success", "Profile photo updated!");
@@ -260,10 +299,17 @@ export default function ProfileScreen({ onSignOut }) {
   const handleSaveChanges = async () => {
     const user = auth.currentUser;
     if (!user) return;
-    if (!name.trim()) { showAlert("Error", "Name cannot be empty"); return; }
-    if (!email.trim()) { showAlert("Error", "Email cannot be empty"); return; }
+    if (!name.trim()) {
+      showAlert("Error", "Name cannot be empty");
+      return;
+    }
+    if (!email.trim()) {
+      showAlert("Error", "Email cannot be empty");
+      return;
+    }
 
-    const emailChanged = email.trim().toLowerCase() !== (user.email || "").toLowerCase();
+    const emailChanged =
+      email.trim().toLowerCase() !== (user.email || "").toLowerCase();
     const passwordChanged = newPassword.length > 0;
     const requiresPassword = emailChanged || passwordChanged;
 
@@ -272,18 +318,27 @@ export default function ProfileScreen({ onSignOut }) {
       return;
     }
     if (requiresPassword && !currentPassword) {
-      showAlert("Error", "Enter your current password to change email or password");
+      showAlert(
+        "Error",
+        "Enter your current password to change email or password",
+      );
       return;
     }
 
     setLoading(true);
     try {
       if (requiresPassword) {
-        const credential = EmailAuthProvider.credential(user.email, currentPassword);
+        const credential = EmailAuthProvider.credential(
+          user.email,
+          currentPassword,
+        );
         await reauthenticateWithCredential(user, credential);
       }
       if (name.trim() !== user.displayName) {
-        await updateProfile(user, { displayName: name.trim(), photoURL: user.photoURL || null });
+        await updateProfile(user, {
+          displayName: name.trim(),
+          photoURL: user.photoURL || null,
+        });
       }
       if (emailChanged) await updateEmail(user, email.trim());
       if (passwordChanged) await updatePassword(user, newPassword);
@@ -299,8 +354,10 @@ export default function ProfileScreen({ onSignOut }) {
       showAlert("Success", "Profile updated successfully!");
     } catch (error) {
       let message = error.message;
-      if (error.code === "auth/wrong-password") message = "Current password is incorrect";
-      else if (error.code === "auth/weak-password") message = "New password is too weak";
+      if (error.code === "auth/wrong-password")
+        message = "Current password is incorrect";
+      else if (error.code === "auth/weak-password")
+        message = "New password is too weak";
       else if (error.code === "auth/requires-recent-login")
         message = "Please enter your current password to make this change";
       showAlert("Error", message);
@@ -319,35 +376,46 @@ export default function ProfileScreen({ onSignOut }) {
     const doDelete = async () => {
       setLoading(true);
       try {
-        const credential = EmailAuthProvider.credential(user.email, currentPassword);
+        const credential = EmailAuthProvider.credential(
+          user.email,
+          currentPassword,
+        );
         await reauthenticateWithCredential(user, credential);
 
         const classSnap = await getDocs(
           query(collection(db, "classes"), where("teacherId", "==", user.uid)),
         );
         const classIds = classSnap.docs.map((d) => d.id);
-        await Promise.all(classSnap.docs.map((d) => deleteDoc(doc(db, "classes", d.id))));
+        await Promise.all(
+          classSnap.docs.map((d) => deleteDoc(doc(db, "classes", d.id))),
+        );
 
         const studentSnap = await getDocs(
           query(collection(db, "students"), where("teacherId", "==", user.uid)),
         );
-        await Promise.all(studentSnap.docs.map((d) => deleteDoc(doc(db, "students", d.id))));
+        await Promise.all(
+          studentSnap.docs.map((d) => deleteDoc(doc(db, "students", d.id))),
+        );
 
         for (let i = 0; i < classIds.length; i += 10) {
           const chunk = classIds.slice(i, i + 10);
           const attSnap = await getDocs(
             query(collection(db, "attendance"), where("classId", "in", chunk)),
           );
-          await Promise.all(attSnap.docs.map((d) => deleteDoc(doc(db, "attendance", d.id))));
+          await Promise.all(
+            attSnap.docs.map((d) => deleteDoc(doc(db, "attendance", d.id))),
+          );
         }
 
         await deleteUser(user);
         showAlert("Success", "Your account has been deleted.");
       } catch (error) {
         let message = error.message;
-        if (error.code === "auth/wrong-password") message = "Current password is incorrect";
+        if (error.code === "auth/wrong-password")
+          message = "Current password is incorrect";
         else if (error.code === "auth/requires-recent-login")
-          message = "Please re-open the app and try again to delete your account.";
+          message =
+            "Please re-open the app and try again to delete your account.";
         showAlert("Error", message);
       }
       setLoading(false);
@@ -380,11 +448,23 @@ export default function ProfileScreen({ onSignOut }) {
   };
 
   const getInitials = (n) =>
-    n ? n.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2) : "T";
+    n
+      ? n
+          .split(" ")
+          .map((w) => w[0])
+          .join("")
+          .toUpperCase()
+          .slice(0, 2)
+      : "T";
 
   if (fetching) {
     return (
-      <View style={[styles.container, { justifyContent: "center", alignItems: "center" }]}>
+      <View
+        style={[
+          styles.container,
+          { justifyContent: "center", alignItems: "center" },
+        ]}
+      >
         <ActivityIndicator color="#CC0000" size="large" />
       </View>
     );
@@ -393,7 +473,11 @@ export default function ProfileScreen({ onSignOut }) {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity style={styles.avatarWrapper} onPress={pickImage} disabled={savingPhoto}>
+        <TouchableOpacity
+          style={styles.avatarWrapper}
+          onPress={pickImage}
+          disabled={savingPhoto}
+        >
           <View style={styles.avatarCircle}>
             {photoURL ? (
               <Image
@@ -406,7 +490,11 @@ export default function ProfileScreen({ onSignOut }) {
             )}
           </View>
           {savingPhoto ? (
-            <ActivityIndicator color="#FFF" size="small" style={{ marginTop: 6 }} />
+            <ActivityIndicator
+              color="#FFF"
+              size="small"
+              style={{ marginTop: 6 }}
+            />
           ) : (
             <Text style={styles.editAvatarText}>Change</Text>
           )}
@@ -442,29 +530,64 @@ export default function ProfileScreen({ onSignOut }) {
           autoCapitalize="none"
         />
         <Text style={styles.hint}>
-          Change your email address here. Enter current password below when saving.
+          Change your email address here. Enter current password below when
+          saving.
         </Text>
 
-        <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Change Password</Text>
-        <Text style={styles.hint}>Leave blank to keep your current password.</Text>
+        <Text style={[styles.sectionTitle, { marginTop: 24 }]}>
+          Change Password
+        </Text>
+        <Text style={styles.hint}>
+          Leave blank to keep your current password.
+        </Text>
 
         <Text style={styles.label}>Current Password</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Enter current password"
-          secureTextEntry
-          value={currentPassword}
-          onChangeText={setCurrentPassword}
-        />
+        <View style={styles.passwordInputWrapper}>
+          <TextInput
+            style={styles.passwordInput}
+            placeholder="Enter current password"
+            secureTextEntry={!showCurrentPassword}
+            value={currentPassword}
+            onChangeText={setCurrentPassword}
+          />
+          <TouchableOpacity
+            style={styles.passwordToggle}
+            onPress={() => setShowCurrentPassword(!showCurrentPassword)}
+          >
+            <Image
+              source={
+                showCurrentPassword
+                  ? require("../../assets/hide-password.png")
+                  : require("../../assets/view-password.png")
+              }
+              style={styles.passwordIcon}
+            />
+          </TouchableOpacity>
+        </View>
 
         <Text style={styles.label}>New Password</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Min 6 characters"
-          secureTextEntry
-          value={newPassword}
-          onChangeText={setNewPassword}
-        />
+        <View style={styles.passwordInputWrapper}>
+          <TextInput
+            style={styles.passwordInput}
+            placeholder="Min 6 characters"
+            secureTextEntry={!showNewPassword}
+            value={newPassword}
+            onChangeText={setNewPassword}
+          />
+          <TouchableOpacity
+            style={styles.passwordToggle}
+            onPress={() => setShowNewPassword(!showNewPassword)}
+          >
+            <Image
+              source={
+                showNewPassword
+                  ? require("../../assets/hide-password.png")
+                  : require("../../assets/view-password.png")
+              }
+              style={styles.passwordIcon}
+            />
+          </TouchableOpacity>
+        </View>
 
         <TouchableOpacity
           style={[styles.saveButton, loading && { opacity: 0.6 }]}
@@ -524,8 +647,18 @@ const styles = StyleSheet.create({
   emailHeader: { color: "#FFCCCC", fontSize: 13, marginTop: 2 },
   role: { color: "rgba(255,255,255,0.7)", fontSize: 12, marginTop: 4 },
   content: { flex: 1, padding: 16 },
-  sectionTitle: { fontSize: 16, fontWeight: "bold", color: "#CC0000", marginBottom: 12 },
-  label: { fontSize: 13, color: "#CC0000", fontWeight: "bold", marginBottom: 4 },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#CC0000",
+    marginBottom: 12,
+  },
+  label: {
+    fontSize: 13,
+    color: "#CC0000",
+    fontWeight: "bold",
+    marginBottom: 4,
+  },
   hint: { fontSize: 11, color: "#999", marginBottom: 12, marginTop: -8 },
   input: {
     backgroundColor: "#F5F5F5",
@@ -534,6 +667,21 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     fontSize: 14,
   },
+  passwordInputWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F5F5F5",
+    borderRadius: 8,
+    marginBottom: 16,
+    paddingRight: 8,
+  },
+  passwordInput: { flex: 1, padding: 12, fontSize: 14 },
+  passwordToggle: {
+    padding: 8,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  passwordIcon: { width: 20, height: 20 },
   saveButton: {
     backgroundColor: "#1A3A8F",
     padding: 14,

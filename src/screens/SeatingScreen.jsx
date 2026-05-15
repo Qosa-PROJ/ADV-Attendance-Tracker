@@ -25,7 +25,7 @@ import {
 import { onAuthStateChanged } from "firebase/auth";
 import { db, auth } from "../FireBase/FireBaseConfig";
 
-const COLS = 5;
+const COLS = 6;
 
 // ─── Web-compatible Alert (works on both Expo Go and Web) ───────────────────
 const isWeb = typeof document !== "undefined";
@@ -168,7 +168,7 @@ export default function SeatingScreen() {
   const [showPicker, setShowPicker] = useState(false);
   const [students, setStudents] = useState([]);
   const [seatMap, setSeatMap] = useState({});
-  const [rowsCount, setRowsCount] = useState(4);
+  const [rowsCount, setRowsCount] = useState(6);
   const [colsCount, setColsCount] = useState(COLS);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -210,7 +210,7 @@ export default function SeatingScreen() {
 
     setStudents([]);
     setSeatMap({});
-    setRowsCount(4);
+    setRowsCount(6);
     setColsCount(COLS);
 
     loadClassData(selectedClassId, () => cancelled);
@@ -258,11 +258,11 @@ export default function SeatingScreen() {
       if (classDoc.exists()) {
         const data = classDoc.data();
         setSeatMap(data.seatMap || {});
-        setRowsCount(data.rowsCount ?? 4);
+        setRowsCount(data.rowsCount ?? 6);
         setColsCount(data.colsCount ?? COLS);
       } else {
         setSeatMap({});
-        setRowsCount(4);
+        setRowsCount(6);
         setColsCount(COLS);
       }
     } catch (e) {
@@ -520,59 +520,101 @@ export default function SeatingScreen() {
               </View>
             </View>
 
-            <View style={styles.teacherDesk}>
-              <Text style={styles.teacherText}>TEACHER'S DESK</Text>
-            </View>
-
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator
               style={styles.gridScrollContainer}
               contentContainerStyle={styles.gridScrollContent}
             >
-              <View style={[styles.grid, { width: colsCount * 64 + 32 }]}>
+              <View style={[styles.grid, { width: colsCount * 64 + 100 }]}>
                 {Array.from({ length: rowsCount }).map((_, row) => (
                   <View key={row} style={styles.gridRow}>
-                    {Array.from({ length: colsCount }).map((_, col) => {
-                      const name = getStudentName(seatMap[`${row}-${col}`]);
-                      return (
-                        <TouchableOpacity
-                          key={col}
-                          style={[
-                            styles.seat,
-                            name ? styles.seatOccupied : styles.seatEmpty,
-                          ]}
-                          onPress={() => handleSeatPress(row, col)}
-                          onLongPress={() => {
-                            if (name)
-                              showAlert("Remove", `Remove ${name}?`, [
-                                { text: "Cancel" },
-                                {
-                                  text: "Remove",
-                                  onPress: () => removeSeat(row, col),
-                                },
-                              ]);
-                          }}
-                        >
-                          {name ? (
-                            <>
-                              <Text style={styles.seatInitials}>
-                                {getInitials(name)}
-                              </Text>
-                              <Text style={styles.seatName} numberOfLines={2}>
-                                {name.split(" ")[0]}
-                              </Text>
-                            </>
-                          ) : (
-                            <Text style={styles.seatPlus}>+</Text>
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
+                    {Array.from({ length: Math.ceil(colsCount / 2) }).map(
+                      (_, col) => {
+                        const name = getStudentName(seatMap[`${row}-${col}`]);
+                        return (
+                          <TouchableOpacity
+                            key={col}
+                            style={[
+                              styles.seat,
+                              name ? styles.seatOccupied : styles.seatEmpty,
+                            ]}
+                            onPress={() => handleSeatPress(row, col)}
+                            onLongPress={() => {
+                              if (name)
+                                showAlert("Remove", `Remove ${name}?`, [
+                                  { text: "Cancel" },
+                                  {
+                                    text: "Remove",
+                                    onPress: () => removeSeat(row, col),
+                                  },
+                                ]);
+                            }}
+                          >
+                            {name ? (
+                              <>
+                                <Text style={styles.seatInitials}>
+                                  {getInitials(name)}
+                                </Text>
+                                <Text style={styles.seatName} numberOfLines={2}>
+                                  {name.split(" ")[0]}
+                                </Text>
+                              </>
+                            ) : (
+                              <Text style={styles.seatPlus}>+</Text>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      },
+                    )}
+                    <View style={styles.aisle} />
+                    {Array.from({ length: Math.floor(colsCount / 2) }).map(
+                      (_, colIndex) => {
+                        const col = Math.ceil(colsCount / 2) + colIndex;
+                        const name = getStudentName(seatMap[`${row}-${col}`]);
+                        return (
+                          <TouchableOpacity
+                            key={col}
+                            style={[
+                              styles.seat,
+                              name ? styles.seatOccupied : styles.seatEmpty,
+                            ]}
+                            onPress={() => handleSeatPress(row, col)}
+                            onLongPress={() => {
+                              if (name)
+                                showAlert("Remove", `Remove ${name}?`, [
+                                  { text: "Cancel" },
+                                  {
+                                    text: "Remove",
+                                    onPress: () => removeSeat(row, col),
+                                  },
+                                ]);
+                            }}
+                          >
+                            {name ? (
+                              <>
+                                <Text style={styles.seatInitials}>
+                                  {getInitials(name)}
+                                </Text>
+                                <Text style={styles.seatName} numberOfLines={2}>
+                                  {name.split(" ")[0]}
+                                </Text>
+                              </>
+                            ) : (
+                              <Text style={styles.seatPlus}>+</Text>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      },
+                    )}
                   </View>
                 ))}
               </View>
             </ScrollView>
+
+            <View style={styles.teacherDesk}>
+              <Text style={styles.teacherText}>TEACHER'S DESK</Text>
+            </View>
 
             {unseatedStudents.length > 0 && (
               <>
@@ -747,7 +789,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     borderRadius: 8,
-    marginBottom: 20,
+    marginTop: 20,
+    marginBottom: 16,
   },
   teacherText: { color: "#FFF", fontWeight: "bold", fontSize: 15 },
   gridScrollContainer: {
@@ -755,10 +798,13 @@ const styles = StyleSheet.create({
   },
   gridScrollContent: {
     alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 16,
+    minWidth: "100%",
   },
-  grid: { alignItems: "center" },
-  gridRow: { flexDirection: "row", marginBottom: 8 },
+  grid: { alignItems: "center", justifyContent: "center" },
+  gridRow: { flexDirection: "row", marginBottom: 8, alignItems: "center" },
+  aisle: { width: 40, marginHorizontal: 12 },
   seat: {
     width: 58,
     height: 64,

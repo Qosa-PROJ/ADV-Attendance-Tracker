@@ -162,7 +162,6 @@ export default function CalendarScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Attendance Sheet</Text>
-        <Text style={styles.subtitle}>{monthLabel}</Text>
       </View>
 
       <View style={styles.classRow}>
