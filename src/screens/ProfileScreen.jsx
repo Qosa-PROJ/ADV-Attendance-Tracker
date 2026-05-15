@@ -407,6 +407,7 @@ export default function ProfileScreen({ onSignOut }) {
           );
         }
 
+        await deleteDoc(doc(db, "users", user.uid));
         await deleteUser(user);
         showAlert("Success", "Your account has been deleted.");
       } catch (error) {
