@@ -1,6 +1,11 @@
 // Import the functions you need from the SDKs you need
 import { initializeApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import {
+  getAuth,
+  setPersistence,
+  browserSessionPersistence,
+} from "firebase/auth";
+import { Platform } from "react-native";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
@@ -19,6 +24,13 @@ const firebaseConfig = {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+
+if (Platform.OS === "web") {
+  setPersistence(auth, browserSessionPersistence).catch((err) => {
+    console.warn("Failed to set web auth persistence:", err);
+  });
+}
+
 const db = getFirestore(app);
 const storage = getStorage(app);
 

@@ -1178,7 +1178,7 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 2,
   },
-  seatPlus: { color: "#9CA3AF", fontSize: 14, fontWeight: "300" },
+  seatPlus: { color: "#9CA3AF", fontSize: 12, fontWeight: "300" },
   unseatedList: {
     flexDirection: "row",
     flexWrap: "wrap",
